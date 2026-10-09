@@ -1,0 +1,29 @@
+/* CC Switch-inspired semantic light palette; see docs/third-party-notices.md. */
+:root {
+  color-scheme: light;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--paper);
+  --paper: #f8fafc;
+  --sidebar: #f1f5f9;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --text: #1e293b;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-light: #eff6ff;
+  --accent-border: #93c5fd;
+  --success: #15803d;
+  --success-light: #f0fdf4;
+  --warning: #92400e;
+  --warning-light: #fffbeb;
+  --danger: #b91c1c;
+  --danger-light: #fef2f2;
+  --shadow-sm: 0 1px 3px #0f172a08;
+}

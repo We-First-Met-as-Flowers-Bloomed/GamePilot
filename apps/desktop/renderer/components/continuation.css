@@ -1,0 +1,68 @@
+.continuation-panel {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.continuation-panel input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.continuation-review {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.continuation-review p,
+.continuation-created p {
+  margin: 0;
+}
+.continuation-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.continuation-steps > li {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+.continuation-step-heading,
+.continuation-panel .continuation-step-heading label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.continuation-step-heading {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.continuation-panel label.continuation-acknowledgement {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.6;
+  margin: 0;
+  color: inherit;
+}
+.continuation-reasons {
+  margin: 0;
+  padding-left: 24px;
+}
+.continuation-created {
+  display: grid;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.continuation-created code {
+  font-variant-numeric: tabular-nums;
+}
+.continuation-panel .button {
+  justify-self: start;
+}

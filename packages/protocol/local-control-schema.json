@@ -1,0 +1,123 @@
+{
+  "status": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {},
+    "required": []
+  },
+  "capabilities": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {},
+    "required": []
+  },
+  "events": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "afterSeq": { "type": "integer", "minimum": 0 },
+      "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+      "requestId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      }
+    },
+    "required": ["afterSeq"]
+  },
+  "command-review": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sessionId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      },
+      "text": { "type": "string", "minLength": 1, "maxLength": 12000 }
+    },
+    "required": ["sessionId", "text"]
+  },
+  "command-confirm": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sessionId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      },
+      "reviewId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      },
+      "revision": { "type": "integer", "minimum": 0 },
+      "acknowledgePartial": { "type": "boolean" }
+    },
+    "required": ["sessionId", "reviewId", "revision"]
+  },
+  "stop": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sessionId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      },
+      "requestId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      }
+    },
+    "required": ["sessionId"]
+  },
+  "resume-review": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sessionId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      },
+      "requestId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      }
+    },
+    "required": ["sessionId", "requestId"]
+  },
+  "resume-confirm": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sessionId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      },
+      "reviewId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      },
+      "revision": { "type": "integer", "minimum": 0 },
+      "acknowledgePartial": { "type": "boolean" }
+    },
+    "required": ["sessionId", "reviewId", "revision"]
+  }
+}

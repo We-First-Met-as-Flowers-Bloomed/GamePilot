@@ -1,0 +1,8 @@
+{
+  "platform": "win32",
+  "arch": "x64",
+  "version": "v24.21.0",
+  "binarySha256": "ba4e6d110e8c1592a1ecd390f6b05f3da124b13871a5be62b341a07a853c6c32",
+  "licenseSha256": "ed34dd8e3f0a78dbaf00d0444ce8e285b015b765379c2e17880455f70370f8e9",
+  "source": "Reviewed Node executable bundled with installed DSH primary runtime; checked executable version, not runtime/versions.json"
+}

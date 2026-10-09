@@ -1,0 +1,180 @@
+.incident-agent-panel {
+  padding: 20px;
+  margin-top: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.incident-agent-panel header,
+.incident-agent-panel header > div,
+.incident-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.incident-agent-panel header {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.incident-agent-panel h3,
+.incident-agent-panel h4 {
+  margin: 0;
+}
+.incident-agent-panel h4 {
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.incident-actions {
+  margin: 16px 0;
+}
+.incident-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.8fr);
+  gap: 24px;
+  margin-top: 20px;
+}
+.incident-workspace > aside {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+.incident-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.incident-timeline li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  position: relative;
+  padding: 0 0 20px;
+}
+.incident-timeline li:not(:last-child):before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 24px;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+.incident-event-mark {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--surface);
+}
+.incident-timeline [data-status="succeeded"] .incident-event-mark {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--accent-light);
+}
+.incident-timeline [data-status="failed"] .incident-event-mark {
+  color: var(--danger);
+  background: var(--danger-light);
+}
+.incident-timeline [data-status="unknown"] .incident-event-mark,
+.incident-timeline [data-status="partial"] .incident-event-mark,
+.incident-timeline [data-status="blocked"] .incident-event-mark {
+  color: var(--warning);
+  background: var(--warning-light);
+}
+.incident-event-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 24px;
+}
+.incident-event-title time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.incident-timeline p,
+.incident-diagnosis p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.incident-diagnosis {
+  padding: 16px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-light);
+  border-radius: 8px;
+}
+.incident-diagnosis small {
+  display: block;
+  margin-top: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.incident-recovery-proposal {
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--warning-light);
+}
+.incident-recovery-proposal p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.incident-screen {
+  margin-bottom: 20px;
+}
+.incident-screen strong {
+  font-size: 12px;
+}
+.incident-screen img {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  border-radius: 8px;
+}
+.incident-feedback {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 20px;
+}
+.incident-feedback textarea {
+  width: 100%;
+  resize: vertical;
+}
+.incident-confirm {
+  margin-top: 20px;
+  display: grid;
+  gap: 12px;
+  font-size: 12px;
+}
+.incident-confirm label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.incident-remaining ul {
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+@media (max-width: 820px) {
+  .incident-workspace {
+    grid-template-columns: 1fr;
+  }
+  .incident-agent-panel {
+    padding: 16px;
+  }
+  .incident-event-title {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+}

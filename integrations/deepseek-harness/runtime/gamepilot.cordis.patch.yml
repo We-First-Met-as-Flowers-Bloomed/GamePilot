@@ -1,0 +1,36 @@
+# Supported invocation overlay above the official sdk-minimal profile.
+# This runtime has exactly one execution authority: the host tool allowlist.
+- id: llm-deepseek
+  disabled: true
+- id: persistent-bash
+  disabled: true
+- id: persistent-pwsh
+  disabled: true
+- id: terminal-bash
+  disabled: true
+- id: terminal-pwsh
+  disabled: true
+- id: pty
+  disabled: true
+- id: sandbox
+  disabled: true
+- id: sandbox-policy
+  disabled: true
+- id: subprocess
+  disabled: true
+- id: jobs
+  disabled: true
+- id: llm-retry
+  disabled: true
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    includeRuntimeContext: false
+    personaPrefix: !!js process.env.GAMEPILOT_DSH_SYSTEM_PROMPT
+- id: sdk-jsonrpc-server
+  disabled: true
+- insert:
+    - id: gamepilot-sdk-server
+      name: ./plugin.mjs
+      inject: [sdkAppStartup, loader]
+      config: {}

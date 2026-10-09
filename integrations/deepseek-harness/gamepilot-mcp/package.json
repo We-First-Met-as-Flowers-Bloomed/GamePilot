@@ -1,0 +1,12 @@
+{
+  "name": "@local/gamepilot-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Connect the official DeepSeek Harness desktop to the running GamePilot App through its existing bounded MCP tools.",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+artifacts/
+/release/
+*.log
+.env
+.env.*
+!.env.example
+games/onmyoji/resources/model/ocr/*.onnx
+games/onmyoji/resources/model/ocr/keys.txt
+
+# User-supplied game templates and local runtime state
+games/onmyoji/resources/image/*.png
+.gamepilot/
+

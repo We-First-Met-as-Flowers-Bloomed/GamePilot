@@ -1,0 +1,34 @@
+{
+  "version": "v6.17.5",
+  "archiveSha256": "d410fc15d6b8cc460bb3149a93ce43596999adaff32d0c484470a10cbacfbcb8",
+  "awardOptions": {
+    "award": { "supported": true, "label": "每日和每周任务奖励" },
+    "mail": { "supported": true, "label": "邮件", "configKey": "mail" },
+    "recruit": {
+      "supported": true,
+      "label": "免费单抽",
+      "configKey": "freeRecruit"
+    },
+    "orundum": {
+      "supported": true,
+      "label": "活动合成玉",
+      "configKey": "eventOrundum"
+    },
+    "mining": {
+      "supported": true,
+      "label": "限时开采",
+      "configKey": "eventMining"
+    },
+    "specialaccess": {
+      "supported": true,
+      "label": "特殊访问奖励",
+      "configKey": "specialAccess"
+    },
+    "signinevent": {
+      "supported": false,
+      "minVersion": "v6.18.0",
+      "label": "限时签到奖励",
+      "configKey": "signInEvent"
+    }
+  }
+}

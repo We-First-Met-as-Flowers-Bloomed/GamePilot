@@ -1,0 +1,79 @@
+{
+  "version": "codex-cli 0.160.0",
+  "provenance": {
+    "source": "codex-rs/app-server-protocol/schema/typescript/v2",
+    "reviewedCommit": "b8dceb0d4f29e49e73daa08f57fcf5181186f354",
+    "kind": "synthetic-notification-transcript",
+    "admitted": false
+  },
+  "events": [
+    {
+      "method": "item/started",
+      "params": {
+        "threadId": "thread",
+        "turnId": "turn",
+        "item": {
+          "id": "candidate-item",
+          "type": "agentMessage",
+          "phase": "final_answer",
+          "text": ""
+        }
+      }
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "thread",
+        "turnId": "turn",
+        "itemId": "candidate-item",
+        "delta": "{\"kind\":\"answer\",\"text\":\"候选转录\",\"planHash\":null}"
+      }
+    },
+    {
+      "method": "thread/tokenUsage/updated",
+      "params": {
+        "threadId": "thread",
+        "turnId": "turn",
+        "tokenUsage": {
+          "total": {
+            "inputTokens": 30,
+            "outputTokens": 10,
+            "totalTokens": 40,
+            "cachedInputTokens": 12,
+            "cacheWriteInputTokens": 0,
+            "reasoningOutputTokens": 0
+          },
+          "last": {
+            "inputTokens": 30,
+            "outputTokens": 10,
+            "totalTokens": 40,
+            "cachedInputTokens": 12,
+            "cacheWriteInputTokens": 0,
+            "reasoningOutputTokens": 0
+          },
+          "modelContextWindow": null
+        }
+      }
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "threadId": "thread",
+        "turnId": "turn",
+        "item": {
+          "id": "candidate-item",
+          "type": "agentMessage",
+          "phase": "final_answer",
+          "text": "{\"kind\":\"answer\",\"text\":\"候选转录\",\"planHash\":null}"
+        }
+      }
+    },
+    {
+      "method": "turn/completed",
+      "params": {
+        "threadId": "thread",
+        "turn": { "id": "turn", "status": "completed" }
+      }
+    }
+  ]
+}

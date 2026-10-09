@@ -1,0 +1,471 @@
+{
+  "source": {
+    "artifact": "artifacts/live-20261009/player-final-status-fixed-result.json",
+    "sha256": "71905fc55d0369e71fde2dd2888dbc7a01bc9da855e7322fc1dd7d1ca0ab637a",
+    "note": "Deidentified host fields copied from the real query; result summaries and unrelated fields omitted."
+  },
+  "at": "2026-10-09T11:11:30.177Z",
+  "prompt": "今天两个账号的明日方舟日常完成了吗？阴阳师有什么没做完？只查看结果，不启动任务。",
+  "records": [
+    {
+      "requestId": "request-3",
+      "laneId": "lane-a",
+      "requestSource": "daily",
+      "recordedStatus": "succeeded",
+      "recordedConclusion": "recorded-plan-complete",
+      "startedAt": "2026-10-09T06:24:49.477Z",
+      "finishedAt": "2026-10-09T06:38:48.806Z",
+      "complete": true,
+      "inGameCompletion": "not-verified",
+      "warnings": [],
+      "notes": [],
+      "recordedProgress": {
+        "version": 1,
+        "requestId": "request-3",
+        "rootId": "request-6",
+        "latestId": "request-6",
+        "laneId": "lane-a",
+        "source": "daily",
+        "originalStatus": "unknown",
+        "outcome": "unconfirmed",
+        "wholePlanComplete": false,
+        "startedAt": "2026-10-09T04:28:02.502Z",
+        "counts": {
+          "total": 10,
+          "completed": 0,
+          "skipped": 0,
+          "excluded": 0,
+          "remaining": 10
+        },
+        "requests": [
+          {
+            "id": "request-6",
+            "status": "unknown",
+            "startedAt": "2026-10-09T04:28:02.502Z",
+            "finishedAt": "2026-10-09T04:29:04.964Z",
+            "appVersion": "0.14.49"
+          }
+        ],
+        "steps": [
+          {
+            "gameId": "arknights",
+            "skillId": "login",
+            "status": "failed",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "arknights",
+            "skillId": "recruit",
+            "status": "not-run",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "arknights",
+            "skillId": "fight",
+            "status": "not-run",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "arknights",
+            "skillId": "infrastructure",
+            "status": "not-run",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "arknights",
+            "skillId": "friends",
+            "status": "not-run",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "arknights",
+            "skillId": "award",
+            "status": "not-run",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "login",
+            "status": "unknown",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "check-in",
+            "status": "unknown",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "mail",
+            "status": "unknown",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "daily-gift",
+            "status": "unknown",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "realm-raid",
+            "status": "unknown",
+            "sourceId": "request-6",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "hana-claim",
+            "status": "unknown",
+            "sourceId": "request-6",
+            "continued": false
+          }
+        ],
+        "warnings": ["原计划关联或完成证据不完整，不能确认补齐"]
+      },
+      "tasks": [
+        {
+          "runId": "task-3",
+          "gameId": "onmyoji",
+          "gameDay": "2026-10-09",
+          "finishedGameDay": "2026-10-09",
+          "mode": "live",
+          "status": "succeeded",
+          "steps": [
+            {
+              "skillId": "login",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "check-in",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "mail",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "daily-gift",
+              "status": "skipped",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "realm-raid",
+              "status": "skipped",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "hana-claim",
+              "status": "skipped",
+              "evidence": "adapter-result"
+            }
+          ]
+        },
+        {
+          "runId": "task-4",
+          "gameId": "arknights",
+          "gameDay": "2026-10-09",
+          "finishedGameDay": "2026-10-09",
+          "mode": "live",
+          "status": "succeeded",
+          "steps": [
+            {
+              "skillId": "login",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "recruit",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "fight",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "infrastructure",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "friends",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "award",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "requestId": "request-2",
+      "laneId": "lane-b",
+      "requestSource": "single",
+      "recordedStatus": "succeeded",
+      "recordedConclusion": "recorded-plan-complete",
+      "startedAt": "2026-10-09T08:06:30.161Z",
+      "finishedAt": "2026-10-09T08:20:39.252Z",
+      "complete": true,
+      "inGameCompletion": "not-verified",
+      "warnings": [],
+      "notes": [],
+      "recordedProgress": {
+        "version": 1,
+        "requestId": "request-2",
+        "rootId": "request-2",
+        "latestId": "request-2",
+        "laneId": "lane-b",
+        "source": "single",
+        "originalStatus": "succeeded",
+        "outcome": "complete",
+        "wholePlanComplete": true,
+        "startedAt": "2026-10-09T08:06:30.161Z",
+        "counts": {
+          "total": 5,
+          "completed": 5,
+          "skipped": 0,
+          "excluded": 0,
+          "remaining": 0
+        },
+        "requests": [
+          {
+            "id": "request-2",
+            "status": "succeeded",
+            "startedAt": "2026-10-09T08:06:30.161Z",
+            "finishedAt": "2026-10-09T08:20:39.252Z",
+            "appVersion": "0.15.10"
+          }
+        ],
+        "steps": [
+          {
+            "gameId": "arknights",
+            "skillId": "login",
+            "status": "succeeded",
+            "sourceId": "request-2",
+            "continued": false
+          },
+          {
+            "gameId": "arknights",
+            "skillId": "recruit",
+            "status": "succeeded",
+            "sourceId": "request-2",
+            "continued": false
+          },
+          {
+            "gameId": "arknights",
+            "skillId": "fight",
+            "status": "succeeded",
+            "sourceId": "request-2",
+            "continued": false
+          },
+          {
+            "gameId": "arknights",
+            "skillId": "infrastructure",
+            "status": "succeeded",
+            "sourceId": "request-2",
+            "continued": false
+          },
+          {
+            "gameId": "arknights",
+            "skillId": "friends",
+            "status": "succeeded",
+            "sourceId": "request-2",
+            "continued": false
+          },
+          {
+            "gameId": "arknights",
+            "skillId": "award",
+            "status": "succeeded",
+            "sourceId": "request-2",
+            "continued": false
+          }
+        ],
+        "warnings": []
+      },
+      "tasks": [
+        {
+          "runId": "task-2",
+          "gameId": "arknights",
+          "gameDay": "2026-10-09",
+          "finishedGameDay": "2026-10-09",
+          "mode": "live",
+          "status": "succeeded",
+          "steps": [
+            {
+              "skillId": "login",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "recruit",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "fight",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "infrastructure",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "friends",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            },
+            {
+              "skillId": "award",
+              "status": "succeeded",
+              "evidence": "adapter-result"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "requestId": "request-1",
+      "laneId": "lane-b",
+      "requestSource": "single",
+      "recordedStatus": "unknown",
+      "recordedConclusion": "unknown",
+      "startedAt": "2026-10-09T08:24:03.857Z",
+      "finishedAt": "2026-10-09T08:29:06.672Z",
+      "complete": true,
+      "inGameCompletion": "not-verified",
+      "warnings": [],
+      "notes": [],
+      "recordedProgress": {
+        "version": 1,
+        "requestId": "request-1",
+        "rootId": "request-1",
+        "latestId": "request-1",
+        "laneId": "lane-b",
+        "source": "single",
+        "originalStatus": "unknown",
+        "outcome": "unconfirmed",
+        "wholePlanComplete": false,
+        "startedAt": "2026-10-09T08:24:03.857Z",
+        "counts": {
+          "total": 5,
+          "completed": 0,
+          "skipped": 0,
+          "excluded": 0,
+          "remaining": 5
+        },
+        "requests": [
+          {
+            "id": "request-1",
+            "status": "unknown",
+            "startedAt": "2026-10-09T08:24:03.857Z",
+            "finishedAt": "2026-10-09T08:29:06.672Z",
+            "appVersion": "0.15.10"
+          }
+        ],
+        "steps": [
+          {
+            "gameId": "onmyoji",
+            "skillId": "login",
+            "status": "unknown",
+            "sourceId": "request-1",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "check-in",
+            "status": "not-run",
+            "sourceId": "request-1",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "mail",
+            "status": "not-run",
+            "sourceId": "request-1",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "daily-gift",
+            "status": "not-run",
+            "sourceId": "request-1",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "realm-raid",
+            "status": "not-run",
+            "sourceId": "request-1",
+            "continued": false
+          },
+          {
+            "gameId": "onmyoji",
+            "skillId": "hana-claim",
+            "status": "not-run",
+            "sourceId": "request-1",
+            "continued": false
+          }
+        ],
+        "warnings": []
+      },
+      "tasks": [
+        {
+          "runId": "task-1",
+          "gameId": "onmyoji",
+          "gameDay": "2026-10-09",
+          "finishedGameDay": "2026-10-09",
+          "mode": "live",
+          "status": "unknown",
+          "steps": [
+            {
+              "skillId": "login",
+              "status": "unknown"
+            },
+            {
+              "skillId": "check-in",
+              "status": "not-run"
+            },
+            {
+              "skillId": "mail",
+              "status": "not-run"
+            },
+            {
+              "skillId": "daily-gift",
+              "status": "not-run"
+            },
+            {
+              "skillId": "realm-raid",
+              "status": "not-run"
+            },
+            {
+              "skillId": "hana-claim",
+              "status": "not-run"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

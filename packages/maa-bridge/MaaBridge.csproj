@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <AssemblyName>GamePilot.MaaBridge</AssemblyName><PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../games/arknights/engine-contract.json" LogicalName="GamePilot.EngineContract.json" />
+  </ItemGroup>
+</Project>

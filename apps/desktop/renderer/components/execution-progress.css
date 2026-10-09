@@ -1,0 +1,129 @@
+.execution-progress-panel {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.execution-progress-panel .execution-progress-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.execution-progress-panel h4 {
+  margin: 0;
+  font-size: 13px;
+}
+.execution-progress-outcome {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+.execution-progress-outcome[data-outcome="complete"],
+.execution-progress-outcome[data-outcome="recovered"] {
+  background: var(--success-light);
+  color: var(--success);
+}
+.execution-progress-outcome[data-outcome="running"] {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+.execution-progress-outcome[data-outcome="partial"],
+.execution-progress-outcome[data-outcome="incomplete"],
+.execution-progress-outcome[data-outcome="unconfirmed"] {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+.execution-progress-scope,
+.execution-progress-note {
+  margin: 10px 0;
+  color: var(--muted);
+}
+.execution-progress-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+}
+.execution-progress-counts strong {
+  font-variant-numeric: tabular-nums;
+}
+.execution-progress-steps {
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+.execution-progress-steps > li {
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+.execution-progress-steps summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  cursor: pointer;
+}
+.execution-progress-step-status {
+  text-align: right;
+  color: var(--muted);
+}
+.execution-progress-steps
+  [data-progress-state="succeeded"]
+  .execution-progress-step-status {
+  color: var(--success);
+}
+.execution-progress-steps
+  [data-progress-state="failed"]
+  .execution-progress-step-status,
+.execution-progress-steps
+  [data-progress-state="unknown"]
+  .execution-progress-step-status,
+.execution-progress-steps
+  [data-progress-state="excluded"]
+  .execution-progress-step-status {
+  color: var(--warning);
+}
+.execution-progress-warnings,
+.execution-progress-error {
+  padding: 8px 12px;
+  border-radius: 4px;
+  color: var(--warning);
+  background: var(--warning-light);
+}
+.execution-progress-warnings {
+  padding-left: 28px;
+}
+.execution-progress-requests > summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.execution-progress-requests ul {
+  list-style: none;
+  padding: 0;
+}
+.execution-progress-requests li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  margin: 8px 0;
+}
+.execution-progress-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.execution-progress-refresh {
+  margin-top: 12px;
+}

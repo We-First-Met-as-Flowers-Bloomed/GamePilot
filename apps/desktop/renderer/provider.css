@@ -1,0 +1,217 @@
+.provider-page {
+  max-width: 1040px;
+}
+.provider-page-heading,
+.provider-key-heading,
+.provider-key-footer,
+.provider-preset {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.provider-page-heading {
+  align-items: flex-start;
+}
+.provider-page-heading > .button {
+  margin-top: 8px;
+  flex-shrink: 0;
+}
+.provider-current {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  background: var(--accent-light);
+  margin-bottom: 24px;
+}
+.provider-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--accent);
+}
+.provider-current-copy {
+  flex: 1;
+  min-width: 180px;
+  overflow-wrap: anywhere;
+}
+.provider-current-copy h2 {
+  margin: 4px 0;
+  font-size: 16px;
+}
+.provider-current-copy p,
+.provider-caption,
+.provider-help,
+.provider-preset,
+.provider-boundary,
+.provider-codex-note p,
+.provider-test-result p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.provider-editor {
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+}
+.provider-editor .section-label {
+  margin-bottom: 24px;
+}
+.provider-editor h2 {
+  font-size: 16px;
+}
+.provider-methods {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  margin: 0 0 24px;
+}
+.provider-methods legend {
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.provider-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  text-align: left;
+}
+.provider-choice strong {
+  font-size: 14px;
+}
+.provider-choice small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.provider-choice:hover:enabled {
+  border-color: var(--accent-border);
+}
+.provider-choice.selected {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+.provider-choice svg {
+  color: var(--accent);
+}
+.provider-editor label {
+  color: var(--text);
+  font-size: 12px;
+  margin: 20px 0 8px;
+}
+.provider-editor input {
+  background: var(--surface);
+  border-radius: 8px;
+  font-size: 13px;
+  padding: 12px;
+}
+.provider-editor input:disabled {
+  background: var(--surface-muted);
+}
+.provider-key-heading {
+  margin-top: 24px;
+  font-size: 12px;
+}
+.provider-key-heading > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.provider-editor .provider-key-label {
+  color: var(--muted);
+  margin-top: 12px;
+}
+.provider-key-footer {
+  align-items: flex-start;
+}
+.provider-key-footer .text-button {
+  padding: 0;
+  flex-shrink: 0;
+}
+.provider-codex-note {
+  display: flex;
+  gap: 12px;
+  padding: 20px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.provider-codex-note svg {
+  color: var(--accent);
+}
+.provider-codex-note p {
+  margin-top: 8px;
+}
+.provider-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.provider-actions .provider-help {
+  flex-basis: 100%;
+}
+.provider-feedback,
+.provider-test-result {
+  margin-top: 16px;
+}
+.provider-feedback.banner {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.provider-test-result {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background: var(--success-light);
+  color: var(--success);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.provider-boundary {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.provider-boundary svg {
+  margin-top: 4px;
+}
+@media (max-width: 850px) {
+  .provider-page-heading,
+  .provider-key-footer,
+  .provider-preset {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .provider-page-heading > .button {
+    margin: 0 0 20px;
+  }
+  .provider-methods {
+    grid-template-columns: 1fr;
+  }
+  .provider-editor,
+  .provider-current {
+    padding: 20px;
+  }
+}
