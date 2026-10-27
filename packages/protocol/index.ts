@@ -1,6 +1,11 @@
 import type { ArknightsProfiles } from "../../games/arknights/config";
 import { validateRoutine, type Routine } from "./routine";
 import { validOnmyojiEvidence } from "./onmyoji-evidence";
+import { canonicalChannelDeviceKey } from "./account-channel";
+import {
+  validateOnmyojiIdentityBinding,
+  validOnmyojiIdentityEvidence,
+} from "./onmyoji-identity";
 export type RunStatus =
   "queued" | "running" | "stopping" | "succeeded" | "failed" | "cancelled";
 export interface Skill {
@@ -22,6 +27,11 @@ export interface Plan {
   gameId: string;
   skillIds: string[];
   mode: "rehearsal" | "live";
+}
+/** One game account; the backing DeviceLane may also configure other games. */
+export interface GameSlotTarget {
+  laneId: string;
+  gameId: "arknights" | "onmyoji";
 }
 export interface Settings {
   adbPath: string;
@@ -53,6 +63,7 @@ export interface SkillResult {
   evidenceReference?: string;
   arknights?: import("../../games/arknights/evidence").ArknightsExecutionEvidence;
   onmyoji?: import("./onmyoji-evidence").OnmyojiExecutionEvidence;
+  onmyojiIdentity?: import("./onmyoji-identity").OnmyojiIdentityEvidence;
   status?: "succeeded" | "skipped";
   summary?: string;
   outcome?: string;
@@ -63,6 +74,11 @@ export function validStructuredSkillOutcome(
   input: SkillResult | undefined,
 ): boolean {
   if (!input) return true;
+  if (
+    input.onmyojiIdentity !== undefined &&
+    !validOnmyojiIdentityEvidence(input.onmyojiIdentity)
+  )
+    return false;
   if (
     input.onmyoji !== undefined &&
     (!validOnmyojiEvidence(input.onmyoji) ||
@@ -154,6 +170,14 @@ export interface Snapshot {
   engineError?: string;
 }
 export interface DesktopAPI {
+  arknightsActivity?(input: {
+    clientType: "Official" | "Bilibili";
+    refresh?: boolean;
+  }): Promise<import("./arknights-activity").ArknightsActivityCatalog>;
+  importMaaSettings?(input: { profileId: string }): Promise<{
+    config: import("../../games/arknights/config").ArknightsConfig;
+    warnings: string[];
+  } | null>;
   goalSnapshot?(sessionId?: string): Promise<import("./agent-goal").GoalView>;
   onGoalState?(
     listener: (view: import("./agent-goal").GoalView) => void,
@@ -181,6 +205,12 @@ export interface DesktopAPI {
   }): Promise<import("./step-control").PauseAfterStepReceipt>;
   archiveChat(
     input: import("./agent-chat").ChatArchiveInput,
+  ): Promise<import("./agent-chat").ChatView>;
+  restoreArchivedChat(
+    input: import("./agent-chat").RestoreArchivedChatInput,
+  ): Promise<import("./agent-chat").ChatView>;
+  deleteChat(
+    input: import("./agent-chat").DeleteChatInput,
   ): Promise<import("./agent-chat").ChatView>;
   listArchivedChats(
     input?: import("./agent-chat").ChatArchivePageInput,
@@ -246,6 +276,9 @@ export interface DesktopAPI {
   incidentAgentSnapshot(): Promise<
     import("./incident-agent").IncidentAgentView
   >;
+  onIncidentAgentState(
+    listener: (view: import("./incident-agent").IncidentAgentView) => void,
+  ): () => void;
   diagnoseFailure(
     input: import("./incident-agent").IncidentAgentInput,
   ): Promise<import("./incident-agent").IncidentAgentView>;
@@ -280,8 +313,18 @@ export interface DesktopAPI {
     note: string;
   }): Promise<import("./execution").ExecutionRecord>;
   deviceLanes(): Promise<DeviceLanes>;
+  copyChannels?(
+    input: import("./channel").ChannelCopyInput,
+  ): Promise<import("./channel").ChannelCopyResult>;
   saveDeviceLanes(input: DeviceLanes): Promise<DeviceLanes>;
+  inspectOnmyojiIdentity(
+    laneId: string,
+  ): Promise<import("./onmyoji-identity").OnmyojiIdentityInspection>;
   mumuInstances(managerPath?: string): Promise<MuMuInstance[]>;
+  startGameSlot(
+    input: GameSlotTarget & { requestId?: string },
+  ): Promise<{ batchId: string }>;
+  stopGameSlot(input: GameSlotTarget): Promise<void>;
   startLane(laneId: string, requestId?: string): Promise<{ batchId: string }>;
   startLanes(requestId?: string): Promise<{
     batchId: string;
@@ -290,8 +333,43 @@ export interface DesktopAPI {
   stopLane(laneId: string): Promise<void>;
   stopLanes(): Promise<void>;
   arknights(): Promise<ArknightsProfiles>;
+  onmyojiAutomation?(): Promise<
+    import("./onmyoji-automation").OnmyojiAutomationConfig
+  >;
+  saveOnmyojiAutomation?(
+    input: import("./onmyoji-automation").OnmyojiAutomationConfig,
+  ): Promise<import("./onmyoji-automation").OnmyojiAutomationConfig>;
+  runOnmyojiJob?(
+    input: import("./onmyoji-automation").RunOnmyojiJobInput,
+  ): Promise<{ batchId: string }>;
+  arknightsAutomation?(): Promise<
+    import("./arknights-automation").ArknightsAutomationConfig
+  >;
+  saveArknightsAutomation?(
+    input: import("./arknights-automation").ArknightsAutomationConfig,
+  ): Promise<import("./arknights-automation").ArknightsAutomationConfig>;
+  runArknightsJob?(
+    input: import("./arknights-automation").RunArknightsJobInput,
+  ): Promise<{ batchId: string }>;
   saveArknights(input: ArknightsProfiles): Promise<ArknightsProfiles>;
   probeArknights(): Promise<{ version: string }>;
+  searchCopilot(input: {
+    stage: string;
+    limit: number;
+  }): Promise<
+    import("../../games/arknights/copilot-library").CopilotJobSummary[]
+  >;
+  prepareCopilot(
+    input: import("./copilot").CopilotPreparationInput,
+  ): Promise<import("./copilot").PreparedCopilotPlan>;
+  confirmCopilot(
+    input: import("./copilot").CopilotConfirmation,
+  ): Promise<{ batchId: string; requestId: string; laneId: string }>;
+  cancelCopilot(input: {
+    batchId: string;
+    requestId: string;
+    laneId: string;
+  }): Promise<{ stopped: boolean; message: string }>;
   quit(): Promise<void>;
   testNotification(): Promise<string>;
   automation(): Promise<AutomationSettings>;
@@ -302,10 +380,15 @@ export interface DesktopAPI {
   discover(): Promise<Device[]>;
   connect(device: Device): Promise<EngineInfo>;
   capture(): Promise<string>;
+  captureLanePreview(
+    laneId: string,
+  ): Promise<import("./lane-preview").LanePreviewFrame>;
   start(plan: Plan, requestId?: string): Promise<{ runId: string }>;
   stop(): Promise<void>;
   onEvent(listener: (event: RunEvent) => void): () => void;
 }
+
+export const MAX_DEVICE_LANES = 64;
 
 export interface DeviceLane {
   id: string;
@@ -313,19 +396,32 @@ export interface DeviceLane {
   managerPath: string;
   instance: number;
   enabled: boolean;
+  /** Read-only provenance. Original requests and task receipts keep their own IDs. */
+  legacyBinding?: { laneId: string; instance: number; scope: string };
   arknights: { enabled: boolean; profileId: string; routine?: Routine };
-  onmyoji: { enabled: boolean; routine?: Routine };
+  /** New copied channels must bind their own identity before enabling. */
+  identityRequired?: boolean;
+  onmyoji: {
+    enabled: boolean;
+    routine?: Routine;
+    identity?: import("./onmyoji-identity").OnmyojiIdentityBinding;
+  };
+  /**
+   * 按游戏覆盖 MuMu 实例号（渠道化：同一账号的方舟与阴阳师可能装在不同实例上）。
+   * 缺省时退回 instance；资源锁/准入仍以 lane 为单位，这里只影响设备寻址。
+   */
+  deviceInstances?: { arknights?: number; onmyoji?: number };
   closeEmulatorAfterSuccess: boolean;
 }
 
 export interface DeviceLanes {
-  version: 1;
+  version: 1 | 2;
   lanes: DeviceLane[];
 }
 
 /** Identifies the visible plan without changing automatic once-per-day scheduling. */
 export function deviceLanePlanKey(lane: DeviceLane): string {
-  return JSON.stringify([
+  const key: unknown[] = [
     lane.managerPath.toLowerCase().replaceAll("\\", "/"),
     lane.instance,
     lane.arknights.enabled,
@@ -333,7 +429,10 @@ export function deviceLanePlanKey(lane: DeviceLane): string {
     lane.arknights.routine ?? null,
     lane.onmyoji.enabled,
     lane.onmyoji.routine ?? null,
-  ]);
+  ];
+  if (lane.onmyoji.identity)
+    key.push([lane.onmyoji.identity.roleId, lane.onmyoji.identity.serverName]);
+  return JSON.stringify(key);
 }
 
 type LegacyLaneSettings = Pick<
@@ -362,10 +461,10 @@ export function defaultDeviceLanes(legacy: LegacyLaneSettings): DeviceLanes {
 export function validateDeviceLanes(input: unknown): DeviceLanes {
   const value = record(input, ["version", "lanes"]);
   if (
-    value.version !== 1 ||
+    (value.version !== 1 && value.version !== 2) ||
     !Array.isArray(value.lanes) ||
     value.lanes.length < 1 ||
-    value.lanes.length > 8
+    value.lanes.length > MAX_DEVICE_LANES
   )
     throw new Error("设备槽位配置无效");
   const lanes = value.lanes.map((inputLane) => {
@@ -380,6 +479,9 @@ export function validateDeviceLanes(input: unknown): DeviceLanes {
             "name",
             "managerPath",
             "instance",
+            "deviceInstances",
+            "legacyBinding",
+            "identityRequired",
             "enabled",
             "arknights",
             "onmyoji",
@@ -393,6 +495,9 @@ export function validateDeviceLanes(input: unknown): DeviceLanes {
       "name",
       "managerPath",
       "instance",
+      "deviceInstances",
+      "legacyBinding",
+      "identityRequired",
       "enabled",
       "arknights",
       "onmyoji",
@@ -424,12 +529,46 @@ export function validateDeviceLanes(input: unknown): DeviceLanes {
       Number(lane.instance) > 999
     )
       throw new Error("设备槽位实例编号无效");
+    if (
+      lane.identityRequired !== undefined &&
+      typeof lane.identityRequired !== "boolean"
+    )
+      throw Error("渠道身份绑定选项无效");
+    const deviceInstances =
+      lane.deviceInstances === undefined
+        ? undefined
+        : record(lane.deviceInstances, ["arknights", "onmyoji"]);
+    const legacyBinding =
+      lane.legacyBinding === undefined
+        ? undefined
+        : record(lane.legacyBinding, ["laneId", "instance", "scope"]);
+    if (
+      legacyBinding &&
+      (typeof legacyBinding.laneId !== "string" ||
+        !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(legacyBinding.laneId) ||
+        !Number.isInteger(legacyBinding.instance) ||
+        Number(legacyBinding.instance) < 0 ||
+        Number(legacyBinding.instance) > 999 ||
+        typeof legacyBinding.scope !== "string" ||
+        legacyBinding.scope.length > 4096 ||
+        /[\x00-\x1f]/.test(legacyBinding.scope))
+    )
+      throw new Error("渠道来源绑定无效");
+    for (const gameInstance of Object.values(deviceInstances ?? {})) {
+      if (gameInstance === undefined) continue;
+      if (
+        !Number.isInteger(gameInstance) ||
+        Number(gameInstance) < 0 ||
+        Number(gameInstance) > 999
+      )
+        throw new Error("设备渠道实例号无效");
+    }
     const arknights = record(lane.arknights, [
       "enabled",
       "profileId",
       "routine",
     ]);
-    const onmyoji = record(lane.onmyoji, ["enabled", "routine"]);
+    const onmyoji = record(lane.onmyoji, ["enabled", "routine", "identity"]);
     if (
       typeof arknights.enabled !== "boolean" ||
       typeof arknights.profileId !== "string" ||
@@ -441,12 +580,30 @@ export function validateDeviceLanes(input: unknown): DeviceLanes {
       throw new Error("设备槽位开关或账号档案无效");
     if (lane.enabled && !arknights.enabled && !onmyoji.enabled)
       throw new Error("启用的设备槽位至少启用一个游戏");
+    if (
+      value.version === 2 &&
+      (Number(arknights.enabled) + Number(onmyoji.enabled) !== 1 ||
+        lane.deviceInstances !== undefined)
+    )
+      throw new Error("账号渠道必须只绑定一个游戏和一个设备实例");
     return {
       id: lane.id,
       name: lane.name.trim(),
       managerPath: lane.managerPath,
       instance: lane.instance as number,
       enabled: lane.enabled,
+      ...(legacyBinding === undefined
+        ? {}
+        : {
+            legacyBinding: {
+              laneId: legacyBinding.laneId as string,
+              instance: legacyBinding.instance as number,
+              scope: legacyBinding.scope as string,
+            },
+          }),
+      ...(lane.identityRequired === undefined
+        ? {}
+        : { identityRequired: lane.identityRequired as boolean }),
       arknights: {
         enabled: arknights.enabled,
         profileId: arknights.profileId,
@@ -456,18 +613,48 @@ export function validateDeviceLanes(input: unknown): DeviceLanes {
       },
       onmyoji: {
         enabled: onmyoji.enabled,
+        ...(onmyoji.identity === undefined
+          ? {}
+          : { identity: validateOnmyojiIdentityBinding(onmyoji.identity) }),
         ...(onmyoji.routine === undefined
           ? {}
           : { routine: validateRoutine(onmyoji.routine) }),
       },
+      ...(deviceInstances === undefined
+        ? {}
+        : {
+            deviceInstances: {
+              ...(deviceInstances.arknights === undefined
+                ? {}
+                : { arknights: Number(deviceInstances.arknights) }),
+              ...(deviceInstances.onmyoji === undefined
+                ? {}
+                : { onmyoji: Number(deviceInstances.onmyoji) }),
+            },
+          }),
       closeEmulatorAfterSuccess: lane.closeEmulatorAfterSuccess,
     } satisfies DeviceLane;
   });
   if (new Set(lanes.map((lane) => lane.id)).size !== lanes.length)
     throw new Error("设备槽位编号不能重复");
-  if (new Set(lanes.map((lane) => lane.instance)).size !== lanes.length)
+  if (
+    value.version === 1 &&
+    new Set(lanes.map((lane) => lane.instance)).size !== lanes.length
+  )
     throw new Error("MuMu 实例不能重复");
-  return { version: 1, lanes };
+  if (
+    value.version === 2 &&
+    new Set(
+      lanes.map((lane) =>
+        JSON.stringify([
+          canonicalChannelDeviceKey(lane.managerPath, lane.instance),
+          lane.arknights.enabled ? "arknights" : "onmyoji",
+        ]),
+      ),
+    ).size !== lanes.length
+  )
+    throw new Error("同游戏渠道的 MuMu 实例不能重复");
+  return { version: value.version, lanes };
 }
 export interface AutomationSettings {
   scheduleEnabled: boolean;
@@ -483,6 +670,8 @@ export interface AutomationSettings {
   launchEmulator: boolean;
   runOnLaunch: boolean;
   openAtLogin: boolean;
+  /** 每次运行前跟随 maa-cli 解析出的当前活动关卡（活动换期自动适配）。 */
+  followActivityStage: boolean;
 }
 export interface MuMuInstallation {
   managerPath: string;
@@ -496,6 +685,10 @@ export interface MuMuInstance {
   address: string;
   arknights: "Official" | "Bilibili" | null;
   onmyoji: boolean;
+  /** 当前 app 已具备自动化能力的游戏（方舟已就绪；阴阳师底层技能开发中）。 */
+  supportedGames?: Array<"arknights" | "onmyoji">;
+  /** 该渠道此刻是否可直接开跑自动化：running 且有 supportedGames。 */
+  automationReady?: boolean;
 }
 export function validateAutomation(input: unknown): AutomationSettings {
   const value = record(input, [
@@ -512,6 +705,7 @@ export function validateAutomation(input: unknown): AutomationSettings {
     "launchEmulator",
     "runOnLaunch",
     "openAtLogin",
+    "followActivityStage",
   ]);
   const result = {
     scheduleEnabled: false,
@@ -527,6 +721,7 @@ export function validateAutomation(input: unknown): AutomationSettings {
     launchEmulator: false,
     runOnLaunch: false,
     openAtLogin: false,
+    followActivityStage: false,
     ...value,
   };
   if (
@@ -555,6 +750,7 @@ export function validateAutomation(input: unknown): AutomationSettings {
     "launchEmulator",
     "runOnLaunch",
     "openAtLogin",
+    "followActivityStage",
     "scheduleEnabled",
     "secondScheduleEnabled",
     "fosterScheduleEnabled",

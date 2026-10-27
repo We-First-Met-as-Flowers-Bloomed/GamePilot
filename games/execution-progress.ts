@@ -1,3 +1,4 @@
+import { readableHistorySnapshot } from "./history-gate";
 import type { ExecutionRecord } from "../packages/protocol/execution";
 import type { ExecutionDetail } from "../packages/protocol/execution-detail";
 import type { ExecutionProgress } from "../packages/protocol/execution-progress";
@@ -17,11 +18,12 @@ import {
   validateArknightsConfig,
   type ArknightsConfig,
 } from "./arknights/config";
+import { asRecord } from "../packages/protocol/struct";
 
+/** 宽松快照访问需要 any 字段；结构判断复用 protocol 的 asRecord。 */
 const object = (v: unknown): Record<string, any> | undefined =>
-  v && typeof v === "object" && !Array.isArray(v)
-    ? (v as Record<string, any>)
-    : undefined;
+  asRecord<Record<string, any>>(v);
+
 const linkOf = (r: ExecutionRecord) => object(r.snapshot.continuation);
 const plansOf = (r: ExecutionRecord) =>
   [r.snapshot.plan, r.snapshot.arknightsPlan, r.snapshot.onmyojiPlan].filter(
@@ -50,6 +52,8 @@ function validateChild(
   rawTasks: TaskRecord[] | undefined,
   rawRequests: ExecutionRecord[],
 ): ContinuationLink {
+  if (!readableHistorySnapshot(parent) || !readableHistorySnapshot(child))
+    throw Error("续跑快照版本不受支持");
   const link = linkOf(child),
     lane = object(parent.snapshot.lane),
     nextLane = object(child.snapshot.lane),

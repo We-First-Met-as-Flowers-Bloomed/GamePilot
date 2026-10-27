@@ -18,7 +18,7 @@
   flex-direction: column;
 }
 .execution-detail-dialog::backdrop {
-  background: rgb(15 23 42 / 24%);
+  background: var(--overlay);
 }
 .execution-detail-header {
   display: flex;
@@ -217,7 +217,7 @@
 }
 .execution-detail-technical dd {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .execution-detail-dialog summary:focus-visible {
   outline: 2px solid var(--accent);

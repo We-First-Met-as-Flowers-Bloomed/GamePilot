@@ -27,6 +27,15 @@ export interface DeviceInspection {
   observedAt: string;
   address: string;
   foregroundPackage?: string;
+  /**
+   * 这张截图所属的逻辑显示号（2026-10-16 加）。
+   *
+   * MuMu 15 是**多标签/多显示**形态：桌面在 display 0、阴阳师在 2、方舟在 3，
+   * 而 `adb shell input` 默认只打 display 0 —— 不带上它，点击会落在桌面上
+   * （"识别得到主页、却打不开个人名片"就是这么来的）。读取时带上它，
+   * 点击时用 `input -d <displayId>` 回到同一块显示。
+   */
+  displayId?: number;
   image: string;
   accountVerified: boolean;
   pageVerified: boolean;

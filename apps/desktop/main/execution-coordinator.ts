@@ -12,8 +12,18 @@ import {
   type ExecutionRequest,
   type ExecutionStatus,
 } from "../../../packages/protocol/execution";
+import {
+  executionSnapshotForWrite,
+  parseExecutionSnapshot,
+} from "../../../packages/protocol/execution-snapshot";
+import {
+  frozenMuMuResource,
+  validExitObservation,
+  type WorkerExitObservation,
+} from "../../../packages/protocol/execution-observation";
 
 export interface ExecutionLease {
+  observe?(value: WorkerExitObservation): Promise<void>;
   finish(
     status: Exclude<ExecutionStatus, "running">,
     message: string,
@@ -49,8 +59,16 @@ function canonical(value: unknown): string {
       .join(",")}}`;
   return JSON.stringify(value);
 }
-function requestCopy(value: ExecutionRequest): ExecutionRequest {
-  const copy = JSON.parse(JSON.stringify(value)) as ExecutionRequest;
+function requestCopy(
+  value: ExecutionRequest,
+  mode: "new" | "load" = "new",
+): ExecutionRequest {
+  const input =
+    mode === "new"
+      ? { ...value, snapshot: executionSnapshotForWrite(value.snapshot) }
+      : value;
+  const copy = JSON.parse(JSON.stringify(input)) as ExecutionRequest;
+  if (mode === "new") copy.snapshot = executionSnapshotForWrite(copy.snapshot);
   validateRequestId(copy.id);
   if (
     !["single", "daily", "maintenance"].includes(copy.source) ||
@@ -144,7 +162,7 @@ export class ExecutionCoordinator {
           const record = JSON.parse(
             await readFile(join(this.directory, name), "utf8"),
           ) as ExecutionRecord;
-          const request = requestCopy(record);
+          const request = requestCopy(record, "load");
           if (
             record.version !== 1 ||
             !validStartupFaultAssociation(record) ||
@@ -170,6 +188,25 @@ export class ExecutionCoordinator {
               !Number.isFinite(Date.parse(record.finishedAt)))
           )
             throw Error("执行请求记录格式无效");
+          const schema = parseExecutionSnapshot(record.snapshot)!;
+          if (
+            schema.schemaStatus === "unsupported" ||
+            schema.schemaStatus === "invalid"
+          ) {
+            this.records.set(record.id, record);
+            this.error =
+              "执行快照版本不受支持，已保留原记录；核对记录后才能启动任务";
+            continue;
+          }
+          if (
+            record.observations !== undefined &&
+            (!Array.isArray(record.observations) ||
+              record.observations.length > 16 ||
+              record.observations.some(
+                (value) => !validExitObservation(value, record),
+              ))
+          )
+            throw Error("执行请求退出证据无效");
           if (record.status === "running") {
             record.status = "unknown";
             record.finishedAt = new Date().toISOString();
@@ -208,7 +245,13 @@ export class ExecutionCoordinator {
       hash = fingerprint(request);
     const previous = this.records.get(request.id);
     if (previous) {
-      if (previous.fingerprint !== hash)
+      // Legacy receipts retain their original hash contract, including the
+      // absence of schemaVersion. Compare without stamping for deduplication.
+      const comparisonHash =
+        parseExecutionSnapshot(previous.snapshot)?.schemaStatus === "legacy"
+          ? fingerprint(requestCopy(input, "load"))
+          : hash;
+      if (previous.fingerprint !== comparisonHash)
         throw Error(`请求 ${request.id} 参数不一致，不能复用编号`);
       throw Error(
         `请求 ${request.id} 已受理（${previous.status}），不会重复执行`,
@@ -234,10 +277,36 @@ export class ExecutionCoordinator {
     }
     let completion: Promise<void> | undefined;
     const lease: ExecutionLease = {
+      observe: async (value) => {
+        const current = this.records.get(record.id)!;
+        if (completion || current.status !== "running")
+          throw Error("执行请求已结束，不能追加退出证据");
+        const observation = {
+          ...structuredClone(value),
+          physicalResource: frozenMuMuResource(record.snapshot),
+          executionId: record.id,
+          fingerprint: record.fingerprint,
+          ...(record.laneId ? { laneId: record.laneId } : {}),
+          ...(record.batchId ? { batchId: record.batchId } : {}),
+        };
+        if (
+          !validExitObservation(observation, current) ||
+          Date.parse(observation.observedAt) > Date.now()
+        )
+          throw Error("执行请求退出证据无效或与冻结设备不符");
+        if (current.observations?.some((o) => o.gameId === observation.gameId))
+          throw Error("退出证据重复，原观察不能覆盖");
+        const next = {
+          ...current,
+          observations: [...(current.observations ?? []), observation],
+        };
+        this.records.set(record.id, next);
+        await this.persist(next);
+      },
       finish: (status, message, startupFault) => {
         if (!completion) {
           const next = {
-            ...record,
+            ...this.records.get(record.id)!,
             status,
             message,
             finishedAt: new Date().toISOString(),
@@ -269,6 +338,16 @@ export class ExecutionCoordinator {
     const record = this.records.get(id);
     if (!record) throw Error("执行请求不存在");
     return structuredClone(record);
+  }
+  /** Read-only scheduling probe; the real begin() still atomically owns the device. */
+  canStart(resources: string[]): boolean {
+    this.assertHealthy();
+    try {
+      this.assertAvailable(resources);
+      return true;
+    } catch {
+      return false;
+    }
   }
   private assertAvailable(targets: string[]) {
     if (!targets.length || targets.some((r) => typeof r !== "string" || !r))

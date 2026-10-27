@@ -82,7 +82,7 @@ it("recognizes friends list separately from own profile and reports only known s
     ).page,
   ).toBe("unknown");
 });
-const home = (uid = "864209759"): Frame => ({
+const home = (uid = "123456789"): Frame => ({
   width: 1920,
   height: 1080,
   texts: [
@@ -97,7 +97,7 @@ const pkg = "com.hypergryph.arknights.bilibili";
 const config = {
   ...defaultArknightsConfig,
   clientType: "Bilibili" as const,
-  expectedUid: "864209759",
+  expectedUid: "123456789",
 };
 it("recognizes only the own-profile layout and labelled UID without treating it as home", () => {
   const frame: Frame = {
@@ -109,7 +109,7 @@ it("recognizes only the own-profile layout and labelled UID without treating it 
       hit("好友列表", 110, 315),
       hit("添加好友", 110, 450),
       hit("助战干员", 110, 580),
-      hit("ID 864209759", 1250, 310),
+      hit("ID 123456789", 1250, 310),
     ],
   };
   const found = classifyArknightsFrame(frame, pkg, config);
@@ -148,10 +148,10 @@ it("migrates old profiles without trusting the startup matching text", () => {
   expect(
     validateArknightsConfig({
       ...defaultArknightsConfig,
-      accountName: "864209759",
+      accountName: "123456789",
     }).expectedUid,
   ).toBe("");
-  expect(validateArknightsConfig(config).expectedUid).toBe("864209759");
+  expect(validateArknightsConfig(config).expectedUid).toBe("123456789");
   expect(() =>
     validateArknightsConfig({ ...config, expectedUid: "29482I209" }),
   ).toThrow("UID");
@@ -159,7 +159,7 @@ it("migrates old profiles without trusting the startup matching text", () => {
 it("requires two agreeing home frames and exact server and UID", () => {
   const frame = classifyArknightsFrame(home(), pkg, config);
   expect(frame.page).toBe("home");
-  expect(frame.uid).toBe("864209759");
+  expect(frame.uid).toBe("123456789");
   expect(compareArknightsFrames(frame, frame, config)).toMatchObject({
     account: "matched",
     page: "home",
@@ -168,7 +168,7 @@ it("requires two agreeing home frames and exact server and UID", () => {
   });
 });
 it("rejects wrong accounts and servers rather than fuzzy matching", () => {
-  const wrong = classifyArknightsFrame(home("864209758"), pkg, config);
+  const wrong = classifyArknightsFrame(home("294821208"), pkg, config);
   expect(compareArknightsFrames(wrong, wrong, config).account).toBe("mismatch");
   const foreign = classifyArknightsFrame(
     home(),

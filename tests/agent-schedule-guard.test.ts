@@ -78,6 +78,16 @@ it("blocks unresolved interrupted batches across restart and game days", () => {
     assertAgentScheduleClear(lane, [unknown], new Date("2026-09-28T04:00:00Z")),
   ).toThrow();
 });
+it.each(["unknown", "cancelled"] as const)(
+  "blocks an ordinary non-Agent %s daily before scheduler catch-up",
+  (status) => {
+    const ordinary = record();
+    delete ordinary.snapshot.agent;
+    ordinary.source = "daily";
+    ordinary.status = status;
+    expect(() => assertAgentScheduleClear(lane, [ordinary], now)).toThrow();
+  },
+);
 it("does not alter regular daily behavior or an unrelated physical lane", () => {
   const normal = record();
   delete normal.snapshot.agent;

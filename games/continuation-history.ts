@@ -1,3 +1,9 @@
+import {
+  createHistoryIndex,
+  frozenHistoryPlans as frozenPlans,
+  historySameDevice as sameDevice,
+  historyTouchesDay as touchesDay,
+} from "./history-gate";
 import type { Plan } from "../packages/protocol";
 import type { ExecutionRecord } from "../packages/protocol/execution";
 import type { ExecutionDetail } from "../packages/protocol/execution-detail";
@@ -5,11 +11,7 @@ import type {
   TaskRecord,
   TaskStepRecord,
 } from "../packages/protocol/task-record";
-import {
-  historyGameDay,
-  historyPlan,
-  historyStepStatus,
-} from "./agent-history";
+import { historyGameDay, historyStepStatus } from "./agent-history";
 import { projectExecutionDetail } from "./execution-detail";
 import { mergeExecutionProgress } from "./execution-progress";
 import { previewDailyContinuation } from "./continuation";
@@ -17,6 +19,7 @@ import { validArknightsEvidence } from "./arknights/evidence";
 import type { StartupReconciliationFact } from "../packages/protocol/startup-reconciliation";
 import { matchesStartupReconciliation } from "./arknights/startup-reconciliation";
 import { onmyojiStepEvidence } from "./onmyoji/evidence";
+import { asRecord as object } from "../packages/protocol/struct";
 
 /** Native uncertainty belongs to the device admission, not a cancellable item. */
 export class ContinuationHistoryError extends Error {
@@ -27,7 +30,7 @@ export class ContinuationHistoryError extends Error {
   }
 }
 
-function assertNativeEffectsKnown(
+export function assertNativeEffectsKnown(
   task: TaskRecord,
   now: Date,
   request: ExecutionRecord | undefined,
@@ -76,67 +79,6 @@ function assertNativeEffectsKnown(
   }
 }
 
-function object(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-function managerPath(value: unknown): string | undefined {
-  if (typeof value !== "string" || !/^(?:[a-z]:[\\/]|[\\/]{2})/i.test(value))
-    return;
-  const segments: string[] = [];
-  for (const segment of value.replace(/\\/g, "/").toLowerCase().split("/")) {
-    if (segment === ".") continue;
-    if (segment === ".." && segments.length > 1) segments.pop();
-    else segments.push(segment);
-  }
-  return segments.join("/");
-}
-function canonicalResource(value: string): string {
-  const match = /^mumu:(.+)#(\d+)$/i.exec(value);
-  return match
-    ? `mumu:${managerPath(match[1]) ?? match[1].toLowerCase()}#${Number(match[2])}`
-    : value;
-}
-function sameDevice(parent: ExecutionRecord, other: ExecutionRecord): boolean {
-  const resource = parent.resources.map(canonicalResource);
-  if (
-    resource.includes("*") ||
-    other.resources.includes("*") ||
-    other.resources.some((item) => resource.includes(canonicalResource(item)))
-  )
-    return true;
-  const left = object(parent.snapshot.lane),
-    right = object(other.snapshot.lane);
-  const leftPath = managerPath(left?.managerPath),
-    rightPath = managerPath(right?.managerPath);
-  return (
-    !!leftPath && leftPath === rightPath && left?.instance === right?.instance
-  );
-}
-function touchesDay(
-  gameId: string,
-  start: string,
-  end: string | undefined,
-  now: Date,
-): boolean {
-  const first = historyGameDay(gameId, start),
-    last = end ? historyGameDay(gameId, end) : undefined;
-  const today = historyGameDay(gameId, now.toISOString());
-  return !first || !last || !today || (first <= today && last >= today);
-}
-function frozenPlans(request: ExecutionRecord): Plan[] | undefined {
-  try {
-    const raw = [
-      request.snapshot.plan,
-      request.snapshot.arknightsPlan,
-      request.snapshot.onmyojiPlan,
-    ].filter((plan) => plan !== undefined);
-    return raw.length ? raw.map(historyPlan) : undefined;
-  } catch {
-    return;
-  }
-}
 function checkSteps(steps: TaskStepRecord[], skills: string[]): void {
   for (const skillId of skills) {
     const candidates = steps.filter((step) => step.skillId === skillId);
@@ -227,15 +169,13 @@ export function completedContinuationRequestIds(
   now?: Date,
 ): Set<string> {
   const covered = new Set<string>();
+  const index = createHistoryIndex(requests, tasks);
   const details = new Map<string, ExecutionDetail>();
   for (const request of requests) {
     try {
       details.set(
         request.id,
-        projectExecutionDetail(
-          request,
-          tasks.filter((task) => task.executionId === request.id),
-        ),
+        projectExecutionDetail(request, index.tasks(request.id)),
       );
     } catch {
       /* Incomplete or corrupt evidence never exempts an unresolved request. */
@@ -290,15 +230,13 @@ export function assertContinuationHistory(
     }))
     .filter((plan) => plan.skillIds.length);
   if (!business.length) return;
+  const index = createHistoryIndex(requests, tasks);
   const details = new Map<string, ExecutionDetail>();
   for (const request of requests) {
     try {
       details.set(
         request.id,
-        projectExecutionDetail(
-          request,
-          tasks.filter((task) => task.executionId === request.id),
-        ),
+        projectExecutionDetail(request, index.tasks(request.id)),
       );
     } catch {
       /* Unreliable records cannot supply an exemption. */
@@ -335,7 +273,7 @@ export function assertContinuationHistory(
     if (!sameDevice(parent, request)) continue;
     // Abandonment and a smaller selection never turn unconfirmed submitted
     // work into proof of an idle, safe device. Only other devices/days differ.
-    for (const task of tasks.filter((task) => task.executionId === request.id))
+    for (const task of index.tasks(request.id))
       assertNativeEffectsKnown(task, now, request, tasks, verifiedStartupFacts);
     const frozen = frozenPlans(request),
       detail = details.get(request.id);

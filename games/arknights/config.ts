@@ -1,4 +1,23 @@
 import { validateArknightsCapabilities } from "./capabilities";
+import {
+  validateArknightsCopilotOptions,
+  resolveArknightsCopilotOptions,
+  nativeCopilotTaskOptions,
+  type ArknightsCopilotOptions,
+} from "./copilot-options";
+import {
+  validateArknightsExtendedOptions,
+  extendedArknightsTaskFor,
+  type ArknightsExtendedOptions,
+} from "./extended-options";
+import {
+  validateArknightsTaskOptions,
+  resolveArknightsTaskOptions,
+  nativeRecruitOptions,
+  nativeMallOptions,
+  nativeInfrastructureOptions,
+  type ArknightsTaskOptions,
+} from "./task-options";
 
 export interface ArknightsConfig {
   accountName: string;
@@ -12,12 +31,15 @@ export interface ArknightsConfig {
   creditShopping: boolean;
   copilotFile: string;
   copilotLoopTimes: number;
+  copilotOptions?: ArknightsCopilotOptions;
   freeRecruit: boolean;
   eventOrundum: boolean;
   eventMining: boolean;
   specialAccess: boolean;
   signInEvent: boolean;
   maxRunMinutes: number;
+  taskOptions?: ArknightsTaskOptions;
+  extendedOptions?: ArknightsExtendedOptions;
 }
 export interface ArknightsProfile extends ArknightsConfig {
   id: string;
@@ -69,12 +91,15 @@ export function validateArknightsConfig(input: unknown): ArknightsConfig {
           "creditShopping",
           "copilotFile",
           "copilotLoopTimes",
+          "copilotOptions",
           "freeRecruit",
           "eventOrundum",
           "eventMining",
           "specialAccess",
           "signInEvent",
           "maxRunMinutes",
+          "taskOptions",
+          "extendedOptions",
         ].includes(k),
     )
   )
@@ -123,6 +148,12 @@ export function validateArknightsConfig(input: unknown): ArknightsConfig {
     Number(copilotLoopTimes) > 99
   )
     throw Error("作业循环次数必须为 1 至 99");
+  const copilotOptions =
+    v.copilotOptions === undefined
+      ? undefined
+      : validateArknightsCopilotOptions(v.copilotOptions);
+  if (copilotOptions)
+    resolveArknightsCopilotOptions(copilotOptions, Number(copilotLoopTimes));
   const rewardValues = [
     v.freeRecruit,
     v.eventOrundum,
@@ -161,8 +192,17 @@ export function validateArknightsConfig(input: unknown): ArknightsConfig {
     creditShopping,
     copilotFile: copilotFile.trim(),
     copilotLoopTimes: Number(copilotLoopTimes),
+    ...(copilotOptions === undefined ? {} : { copilotOptions }),
     ...rewardFlags,
     maxRunMinutes: Number(maxRunMinutes),
+    ...(v.taskOptions === undefined
+      ? {}
+      : { taskOptions: validateArknightsTaskOptions(v.taskOptions) }),
+    ...(v.extendedOptions === undefined
+      ? {}
+      : {
+          extendedOptions: validateArknightsExtendedOptions(v.extendedOptions),
+        }),
   };
 }
 export function validateArknightsProfiles(input: unknown): ArknightsProfiles {
@@ -177,7 +217,7 @@ export function validateArknightsProfiles(input: unknown): ArknightsProfiles {
     typeof value.activeProfileId !== "string" ||
     !Array.isArray(value.profiles) ||
     value.profiles.length < 1 ||
-    value.profiles.length > 20
+    value.profiles.length > 100
   )
     throw Error("明日方舟账号档案无效");
   const profiles = value.profiles.map((inputProfile) => {
@@ -205,12 +245,15 @@ export function validateArknightsProfiles(input: unknown): ArknightsProfiles {
             "creditShopping",
             "copilotFile",
             "copilotLoopTimes",
+            "copilotOptions",
             "freeRecruit",
             "eventOrundum",
             "eventMining",
             "specialAccess",
             "signInEvent",
             "maxRunMinutes",
+            "taskOptions",
+            "extendedOptions",
           ].includes(key),
       ) ||
       typeof profile.id !== "string" ||
@@ -244,6 +287,9 @@ export function validateArknightsProfiles(input: unknown): ArknightsProfiles {
         ...(profile.copilotLoopTimes === undefined
           ? {}
           : { copilotLoopTimes: profile.copilotLoopTimes }),
+        ...(profile.copilotOptions === undefined
+          ? {}
+          : { copilotOptions: profile.copilotOptions }),
         ...(profile.freeRecruit === undefined
           ? {}
           : { freeRecruit: profile.freeRecruit }),
@@ -262,6 +308,12 @@ export function validateArknightsProfiles(input: unknown): ArknightsProfiles {
         ...(profile.maxRunMinutes === undefined
           ? {}
           : { maxRunMinutes: profile.maxRunMinutes }),
+        ...(profile.taskOptions === undefined
+          ? {}
+          : { taskOptions: profile.taskOptions }),
+        ...(profile.extendedOptions === undefined
+          ? {}
+          : { extendedOptions: profile.extendedOptions }),
       }),
     };
   });
@@ -302,6 +354,11 @@ export function taskFor(
 ): { type: string; params: Record<string, unknown> } {
   const config = validateArknightsConfig(input);
   validateArknightsCapabilities(config, [id]);
+  if (config.extendedOptions !== undefined) {
+    const extended = extendedArknightsTaskFor(id, config.extendedOptions);
+    if (extended) return extended;
+  }
+  const options = resolveArknightsTaskOptions(config.taskOptions);
   switch (id) {
     case "close":
       return {
@@ -333,6 +390,9 @@ export function taskFor(
           report_to_penguin: false,
           report_to_yituliu: false,
           server: "CN",
+          ...(config.taskOptions?.recruit
+            ? nativeRecruitOptions(options.recruit)
+            : {}),
         },
       };
     case "recruit-recognition":
@@ -364,6 +424,7 @@ export function taskFor(
           only_buy_discount: true,
           reserve_max_credit: true,
           credit_fight: false,
+          ...(config.taskOptions?.mall ? nativeMallOptions(options.mall) : {}),
         },
       };
     case "fight":
@@ -379,6 +440,21 @@ export function taskFor(
           series: 0,
           report_to_penguin: false,
           report_to_yituliu: false,
+          ...(config.taskOptions?.fight
+            ? {
+                medicine: options.fight.medicine,
+                stone: options.fight.stone,
+                medicine_expire_days: options.fight.medicineExpireDays,
+                series: options.fight.series,
+                times: options.fight.times,
+                drops: options.fight.drops,
+                DrGrandet: options.fight.drGrandet,
+                client_type: options.fight.restartOnCrash
+                  ? config.clientType
+                  : "",
+                server: "CN",
+              }
+            : {}),
         },
       };
     case "infrastructure":
@@ -387,15 +463,7 @@ export function taskFor(
         params: {
           enable: true,
           mode: 20000,
-          facility: [
-            "Mfg",
-            "Trade",
-            "Power",
-            "Control",
-            "Reception",
-            "Office",
-            "Dorm",
-          ],
+          facility: ["Trade", "Reception"],
           drones: "Money",
           replenish: false,
           dorm_notstationed_enabled: false,
@@ -409,6 +477,9 @@ export function taskFor(
           reception_clue_exchange: true,
           reception_send_clue: true,
           continue_training: false,
+          ...(config.taskOptions?.infrastructure
+            ? nativeInfrastructureOptions(options.infrastructure)
+            : {}),
         },
       };
     case "award":
@@ -421,6 +492,7 @@ export function taskFor(
           orundum: config.eventOrundum,
           mining: config.eventMining,
           specialaccess: config.specialAccess,
+          signinevent: config.signInEvent,
         },
       };
     case "depot":
@@ -428,19 +500,9 @@ export function taskFor(
     case "operator-box":
       return { type: "OperBox", params: { enable: true } };
     case "copilot":
-      if (!config.copilotFile) throw Error("请先填写本地作业 JSON 路径");
       return {
         type: "Copilot",
-        params: {
-          enable: true,
-          filename: config.copilotFile,
-          loop_times: config.copilotLoopTimes,
-          use_sanity_potion: false,
-          formation: true,
-          add_trust: false,
-          ignore_requirements: false,
-          support_unit_usage: 0,
-        },
+        params: nativeCopilotTaskOptions(config),
       };
     case "roguelike":
       return {
@@ -471,7 +533,29 @@ export function taskFor(
           num_craft_batches: 1,
         },
       };
+    case "sss-copilot":
+    case "paradox-copilot":
+    case "switch-theme":
+    case "video-recognition":
+    case "activity-game":
+    case "operator-progress":
+      throw Error("请先在高级任务参数中配置本项任务");
     default:
       throw Error("未知明日方舟技能");
   }
+}
+
+/** App primary stage replaces the GUI's first entry; later stages retain their order. */
+export function fightTasksFor(input: ArknightsConfig) {
+  const config = validateArknightsConfig(input);
+  const options = resolveArknightsTaskOptions(config.taskOptions).fight;
+  const stages = [
+    ...new Set(
+      config.stage
+        ? [config.stage, ...options.stages.slice(1)]
+        : options.stages,
+    ),
+  ];
+  if (!stages.length) throw Error("请先填写作战关卡");
+  return stages.map((stage) => taskFor("fight", { ...config, stage }));
 }

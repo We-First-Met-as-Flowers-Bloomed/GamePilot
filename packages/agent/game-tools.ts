@@ -1,4 +1,5 @@
 import { canonical } from "../acceptance/files";
+import { MAX_DEVICE_LANES } from "../protocol";
 import {
   AgentToolError,
   agentObject,
@@ -59,12 +60,12 @@ export function createGameGoalTools(options: {
   const specs = [
     tool(
       "run_saved_daily",
-      "执行当前消息明确授权的保存日常。先查询能力/环境；scope=saved沿用当前早晚时段，both使用早间双游戏计划。额外筛选/跳过/改参数须compile_plan后run_plan。返回受理目标，不代表游戏完成。",
+      "请求保存日常清单，执行必须另有宿主结构化本地确认。先查询能力/环境；scope=saved沿用当前早晚时段，both使用早间双游戏计划。额外筛选/跳过/改参数须compile_plan后run_plan。LOCAL_CONFIRMATION_REQUIRED转本地检查；受理目标不代表游戏完成。",
       schema({ scope: { type: "string", enum: ["saved", "both"] } }),
     ),
     tool(
       "run_plan",
-      "执行本轮最后成功compile_plan的精确planHash；宿主重新核验原冻结计划、账号、历史与资源。模型不能传入自己的计划或授权。",
+      "请求本轮最后成功compile_plan的精确planHash；执行必须另有宿主结构化本地确认，宿主重验冻结计划、账号、历史与资源。模型不能传入自己的计划或授权。",
       schema({ planHash: { type: "string", pattern: "^[a-f0-9]{64}$" } }),
     ),
     tool(
@@ -105,7 +106,7 @@ export function createGameGoalTools(options: {
             type: "array",
             items: { type: "string" },
             minItems: 1,
-            maxItems: 8,
+            maxItems: MAX_DEVICE_LANES,
           },
           gameId: { type: "string", enum: ["arknights", "onmyoji"] },
           skillIds: { type: "array", items: { type: "string" }, minItems: 1 },

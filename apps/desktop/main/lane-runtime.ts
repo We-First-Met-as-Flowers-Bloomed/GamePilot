@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { DeviceLane, RunEvent } from "../../../packages/protocol";
 import { WorkerClient } from "./worker-client";
 import { mumuResource } from "./execution-coordinator";
+import { LaneAdmission, type LaneAdmissionOptions } from "./lane-admission";
 
 export interface LaneWorker extends EventEmitter {
   readonly exitPending?: boolean;
@@ -16,6 +17,8 @@ type WorkerFactory = (laneId: string, dataDir: string) => LaneWorker;
 export class LaneRuntimeManager extends EventEmitter {
   private workers = new Map<string, LaneWorker>();
   private running = new Set<string>();
+  private executing = new Set<string>();
+  private admission: LaneAdmission;
   private batches = new Map<string, string>();
   private metadata = new Map<string, Partial<RunEvent>>();
   private controllers = new Map<string, AbortController>();
@@ -32,8 +35,10 @@ export class LaneRuntimeManager extends EventEmitter {
       worker: LaneWorker,
       resources: () => string[],
     ) => void = () => {},
+    admissionOptions: LaneAdmissionOptions = {},
   ) {
     super();
+    this.admission = new LaneAdmission(admissionOptions);
   }
 
   get(laneId: string): LaneWorker {
@@ -77,33 +82,47 @@ export class LaneRuntimeManager extends EventEmitter {
     ) => Promise<T>,
     batchId?: string,
     maintenance = false,
+    external?: AbortSignal,
   ): Promise<T> {
+    external?.throwIfAborted();
+    if (lane.deviceInstances !== undefined)
+      throw new Error("执行设备覆盖尚未冻结，请重新检查计划");
     if (this.disposing || this.closing) throw new Error("执行器正在确认退出");
     if (this.workers.get(lane.id)?.exitPending)
       throw new Error("执行器退出未确认，设备暂不可重新使用");
     if (this.running.has(lane.id))
       throw new Error(`设备槽位 ${lane.name} 正在运行`);
     this.running.add(lane.id);
-    this.resources.set(lane.id, [
-      mumuResource(lane.managerPath, lane.instance),
-    ]);
-    this.metadata.set(lane.id, {
-      executionId: batchId ? `${batchId}:${lane.id}` : undefined,
-      laneName: lane.name,
-      instance: lane.instance,
-      profileId: lane.arknights.profileId,
-      maintenance,
-    });
     const controller = new AbortController();
+    const cancel = () => controller.abort(external?.reason);
+    external?.addEventListener("abort", cancel, { once: true });
     this.controllers.set(lane.id, controller);
     if (batchId) this.batches.set(lane.id, batchId);
+    let release: (() => void) | undefined;
     try {
+      const permit = this.admission.acquire(controller.signal);
+      release = typeof permit === "function" ? permit : await permit;
+      controller.signal.throwIfAborted();
+      this.executing.add(lane.id);
+      this.resources.set(lane.id, [
+        mumuResource(lane.managerPath, lane.instance),
+      ]);
+      this.metadata.set(lane.id, {
+        executionId: batchId ? `${batchId}:${lane.id}` : undefined,
+        laneName: lane.name,
+        instance: lane.instance,
+        profileId: lane.arknights.profileId,
+        maintenance,
+      });
       return await execute(lane, this.get(lane.id), controller.signal);
     } finally {
+      this.executing.delete(lane.id);
       this.running.delete(lane.id);
       this.batches.delete(lane.id);
       this.metadata.delete(lane.id);
       this.controllers.delete(lane.id);
+      external?.removeEventListener("abort", cancel);
+      release?.();
     }
   }
 
@@ -120,14 +139,18 @@ export class LaneRuntimeManager extends EventEmitter {
   }
 
   async stop(laneId: string) {
+    const queued = this.running.has(laneId) && !this.executing.has(laneId);
     this.controllers.get(laneId)?.abort();
+    if (queued) return;
     const worker = this.workers.get(laneId);
     if (worker) await worker.request("stop", undefined, 70000);
   }
 
   async stopAll() {
     await Promise.allSettled(
-      [...this.workers.keys()].map((id) => this.stop(id)),
+      [...new Set([...this.workers.keys(), ...this.controllers.keys()])].map(
+        (id) => this.stop(id),
+      ),
     );
   }
 

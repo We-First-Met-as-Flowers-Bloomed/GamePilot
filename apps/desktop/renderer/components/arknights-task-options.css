@@ -1,0 +1,62 @@
+.ark-native-options {
+  display: grid;
+  gap: 14px;
+}
+.ark-native-options .settings-details {
+  display: grid;
+  gap: 12px;
+}
+.ark-native-options .settings-details > summary {
+  margin-bottom: 12px;
+}
+.ark-native-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+}
+.ark-native-options label {
+  min-width: 0;
+}
+.ark-native-options textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 82px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+}
+.ark-native-options textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.ark-native-options .ark-native-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.ark-native-options .ark-native-toggle input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.ark-native-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+.ark-native-drop {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(80px, 1fr) auto;
+  gap: 10px;
+}
+@media (max-width: 700px) {
+  .ark-native-grid {
+    grid-template-columns: 1fr;
+  }
+}

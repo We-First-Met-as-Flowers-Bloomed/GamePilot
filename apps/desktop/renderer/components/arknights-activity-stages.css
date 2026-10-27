@@ -1,0 +1,36 @@
+.ark-activity-stages > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 12px 0;
+}
+.ark-activity-stages .setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+}
+.ark-activity-mini-games {
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+  padding-top: 12px;
+}
+.ark-activity-heading {
+  font-size: 13px;
+  font-weight: 600;
+}
+.ark-activity-description {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ark-activity-description small {
+  display: block;
+}
+.ark-activity-stages .setting-row .button {
+  flex-shrink: 0;
+}
+.ark-activity-mini-games .button[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}

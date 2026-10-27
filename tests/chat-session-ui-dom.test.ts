@@ -37,6 +37,11 @@ async function screenshot(name,width){window.setContentSize(width,900);await js(
 async function finish(code,error){await writeFile(join(__dirname,'result.json'),JSON.stringify({passed:!error,checks,screenshots,captureErrors,error:error?.stack,lastSource},null,2));window?.destroy();app.exit(code);}
 app.whenReady().then(async()=>{
 window=new BrowserWindow({show:false,width:1440,height:900,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});window.setMenu(null);window.webContents.setWindowOpenHandler(()=>({action:'deny'}));window.webContents.session.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*']},(_,cb)=>cb({cancel:true}));await window.loadFile(join(__dirname,'index.html'));
+await until('document.querySelector(".slots-dashboard")');
+await check('Ordinary startup does not mount the chat workspace','!document.querySelector("#chat-prompt")');
+await js('window.dispatchEvent(new KeyboardEvent("keydown",{key:"k",ctrlKey:true,bubbles:true}))');
+await until('[...document.querySelectorAll("dialog[open] button")].some(b=>b.textContent.includes("打开AI辅助"))');
+await js('[...document.querySelectorAll("dialog[open] button")].find(b=>b.textContent.includes("打开AI辅助")).click()');
 await until('document.querySelector("[data-goal-id=own-goal]")');
 await check('Twelve turns share one goal snapshot and subscriber','window.__sessionFixture.calls.filter(c=>c.method==="goalRead").length===1 && window.__sessionFixture.subscribers()===1');
 await check('A session never borrows another same-turn goal','document.querySelectorAll("[data-goal-id=own-goal]").length===1 && !document.querySelector("[data-goal-id=foreign-goal]")');

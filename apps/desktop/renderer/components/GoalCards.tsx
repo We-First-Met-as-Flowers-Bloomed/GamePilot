@@ -7,6 +7,7 @@ import type {
 } from "../../../../packages/protocol/agent-goal";
 import { useGoals, type GoalController } from "../hooks/useGoals";
 import { games as registeredGames } from "../../../../games/registry";
+import GoalMatrix from "./GoalMatrix";
 
 const labels: Record<GoalStatus, string> = {
   preparing: "准备目标",
@@ -84,10 +85,19 @@ export function GoalCard({
         <span role="status">{status}</span>
       </header>
       <p className="chat-command-intent-reference">{goal.prompt}</p>
-      <p className="helper">{goal.message}</p>
+      <p className="chat-goal-conclusion">
+        {status} ·{" "}
+        {goal.goalSatisfied === true && goal.status === "completed"
+          ? "宿主已核验原目标"
+          : goal.goalSatisfied === false
+            ? "宿主记录目标尚未满足"
+            : "以宿主实际步骤结果为准"}
+      </p>
+      {!compact && <p className="helper">{goal.message}</p>}
+      <GoalMatrix goal={goal} />
       <p className="helper chat-goal-verification">
         {goal.flowComplete ? "原执行流程已处理" : "等待实际执行结果"} ·{" "}
-        {goal.goalSatisfied === true
+        {goal.goalSatisfied === true && goal.status === "completed"
           ? "目标已核验满足"
           : goal.goalSatisfied === false
             ? "目标尚未满足"
@@ -104,6 +114,7 @@ export function GoalCard({
       <details className="chat-record-details">
         <summary>实际结果与执行范围</summary>
         <div className="chat-summary-body">
+          {compact && <p className="helper">{goal.message}</p>}
           {goal.publicReply && compact && (
             <div className="chat-model-explanation">
               <strong>
@@ -219,35 +230,44 @@ export function GoalCard({
           </p>
         </div>
       </details>
-      {(canStop ||
-        (onResume &&
-          ["needs-user", "failed", "unknown"].includes(goal.status))) && (
-        <div className="chat-command-actions">
-          {canStop && (
+      <div className="chat-command-actions goal-panel-footer">
+        <p className="helper">
+          已使用 {goal.retryCount} / {goal.grant.maxRetries} 次恢复额度
+        </p>
+        {goal.requests.map((request, index) => (
+          <button
+            key={`${request.requestId}-${index}`}
+            type="button"
+            className="text-button"
+            onClick={() => onOpenExecution(request.requestId)}
+          >
+            查看原任务记录{goal.requests.length > 1 ? ` ${index + 1}` : ""}
+          </button>
+        ))}
+        {canStop && (
+          <button
+            type="button"
+            className="button secondary"
+            disabled={pending || goal.status === "cancelling"}
+            onClick={() => onCancel(goal)}
+          >
+            <Square size={12} aria-hidden="true" />
+            {pending || goal.status === "cancelling"
+              ? "正在确认停止"
+              : "停止目标"}
+          </button>
+        )}
+        {onResume &&
+          ["needs-user", "failed", "unknown"].includes(goal.status) && (
             <button
               type="button"
-              className="button secondary"
-              disabled={pending || goal.status === "cancelling"}
-              onClick={() => onCancel(goal)}
+              className="text-button"
+              onClick={() => onResume(goal.id)}
             >
-              <Square size={12} aria-hidden="true" />
-              {pending || goal.status === "cancelling"
-                ? "正在确认停止"
-                : "停止目标"}
+              继续沟通这个目标
             </button>
           )}
-          {onResume &&
-            ["needs-user", "failed", "unknown"].includes(goal.status) && (
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => onResume(goal.id)}
-              >
-                继续沟通这个目标
-              </button>
-            )}
-        </div>
-      )}
+      </div>
     </article>
   );
 }

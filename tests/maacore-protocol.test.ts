@@ -28,6 +28,21 @@ function fakeBridge() {
 describe("MaaCore JSON process lifecycle", () => {
   beforeEach(() => spawn.mockReset());
   afterEach(() => vi.useRealTimers());
+  it("binds MuMu capture and input to the configured instance and client", async () => {
+    const f = fakeBridge();
+    const c = new MaaCoreClient("bridge", "core", "logs", {clientType: "Bilibili"});
+    const outcome = c.connect("D:\\MuMu\\nx_main\\adb.exe", "127.0.0.1:16416");
+    f.reply(1, true, {version: "test"});
+    await new Promise((done) => setImmediate(done));
+    expect(f.requests[1]).toMatchObject({
+      method: "connect", mumu: {path: "D:\\MuMu", index: 1, clientType: "Bilibili"},
+    });
+    f.reply(2);
+    await outcome;
+    f.child.exitCode = 0;
+    f.child.emit("exit", 0);
+    await c.close();
+  });
   it.each([
     ["MaaCore connection failed", "connection-unavailable"],
     ["MaaCore connect timed out", "connection-unavailable"],

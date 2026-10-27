@@ -36,7 +36,7 @@ import type { ArknightsPage } from "../games/arknights/inspection";
 import type { DeviceInspection } from "../packages/protocol/recovery";
 
 const device = { name: "test", address: "127.0.0.1:16416", adbPath: "test" };
-const config = { ...defaultArknightsConfig, expectedUid: "753108577" };
+const config = { ...defaultArknightsConfig, expectedUid: "987654321" };
 function capture(page: ArknightsPage): DeviceInspection {
   return {
     address: device.address,

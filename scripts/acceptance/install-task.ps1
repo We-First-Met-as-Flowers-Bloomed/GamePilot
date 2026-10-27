@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$Out)
+﻿param([Parameter(Mandatory=$true)][string]$Out)
 $ErrorActionPreference = 'Stop'
 $auditRoot = (Resolve-Path -LiteralPath $Out).Path
 $baseline = Get-Content -LiteralPath (Join-Path $auditRoot 'baseline.json') -Raw | ConvertFrom-Json

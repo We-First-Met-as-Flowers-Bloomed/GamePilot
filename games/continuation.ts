@@ -7,6 +7,7 @@ import type {
 import type { Plan } from "../packages/protocol";
 import { validatePlan } from "../packages/protocol";
 import { games, gamePlugins } from "./registry";
+import { preserveCreditShoppingStep } from "./arknights/credit-shopping";
 import { arknightsGameDay } from "./arknights/result-policy";
 import { gameDay } from "./onmyoji/policy";
 import { historyStepStatus } from "./agent-history";
@@ -107,7 +108,10 @@ export function previewDailyContinuation(
         game.plan.gameId === "arknights" &&
         skillId === "login";
       const shoppingRetained =
-        !!step && gamePlugins.get(game.plan.gameId).recovery.retainedStep(step);
+        !!step &&
+        (gamePlugins.get(game.plan.gameId).recovery.retainedStep(step) ||
+          (game.plan.gameId === "arknights" &&
+            preserveCreditShoppingStep(step)));
       const onmyoji = step && onmyojiStepEvidence(step);
       const onmyojiUncertain =
         game.plan.gameId === "onmyoji" &&
@@ -141,7 +145,7 @@ export function previewDailyContinuation(
           : shoppingRetained
             ? game.plan.gameId === "onmyoji"
               ? "业务效果已确认，不重复领取或提交；本步骤返回未完成，原失败保留"
-              : "原生购物已确认，保留购物事实，不再重购；本步骤导航未完成，按部分取消计入原计划"
+              : "原生商店任务已结束，保留可能发生的购物效果，不重复购买；核验或导航未完成，按部分取消计入原计划"
             : onmyojiUncertain
               ? "业务已提交或效果证据未确认，不能靠确认勾选重做"
               : nativeUncertain

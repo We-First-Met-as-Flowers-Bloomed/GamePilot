@@ -3,6 +3,7 @@ import type {
   ContinuationPreview,
 } from "../../../packages/protocol/continuation";
 import type { LaneExecutionSnapshot } from "./lane-snapshot";
+import { freezeLaneDevice } from "./lane-device";
 import type {
   ExecutionCoordinator,
   ExecutionLease,
@@ -107,12 +108,26 @@ export class ContinuationService {
         lanes: [parent.snapshot.lane],
       }).lanes[0];
       const current = lanes.lanes.find((l) => l.id === parent.laneId);
+      const originalGameIds = [
+        parent.snapshot.arknightsPlan,
+        parent.snapshot.onmyojiPlan,
+      ]
+        .filter(
+          (plan): plan is import("../../../packages/protocol").Plan => !!plan,
+        )
+        .map((plan) => plan.gameId);
+      const currentDevice =
+        current && freezeLaneDevice(current, originalGameIds);
+      // Historical execution targets are immutable, including legacy snapshots.
+      delete original.deviceInstances;
       const resource = mumuResource(original.managerPath, original.instance);
       if (
         original.id !== parent.laneId ||
         !current?.enabled ||
         resource === "*" ||
-        mumuResource(current.managerPath, current.instance) !== resource ||
+        !currentDevice ||
+        mumuResource(currentDevice.managerPath, currentDevice.instance) !==
+          resource ||
         current.arknights.profileId !== original.arknights.profileId ||
         parent.resources.length !== 1 ||
         parent.resources[0] !== resource

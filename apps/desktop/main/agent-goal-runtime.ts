@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { canonical } from "../../../packages/protocol/canonical";
 import {
   AgentToolError,
   type CompiledDraft,
@@ -11,6 +12,7 @@ import type { GoalService, PreparedGoal } from "./agent-goals";
 import type { LaneExecutionSnapshot } from "./lane-snapshot";
 import type { PlannerSource } from "../../../packages/protocol/agent-planner";
 import type { DeviceLane } from "../../../packages/protocol";
+import { agentLaneAlias } from "../../../packages/protocol/lane-alias";
 import {
   agentMessageAccountSelection,
   agentMessageSkillSelection,
@@ -61,6 +63,20 @@ export interface GoalRuntimeDependencies {
     (Pick<DeviceLane, "id" | "name"> & Partial<Pick<DeviceLane, "enabled">>)[]
   >;
   now?: () => Date;
+  /** Host-only proof from a reviewed local confirmation; never supplied by a model tool. */
+  authorizeExecution?(
+    principal: AgentRuntimePrincipal,
+    prepared: PreparedGoal,
+  ): Promise<
+    | {
+        confirmationId: string;
+        fingerprint: string;
+        scopes: GoalScope[];
+        expiresAt: string;
+        maxRetries: 0 | 1 | 2;
+      }
+    | undefined
+  >;
 }
 function resumeAccountPrompt(
   prompt: string,
@@ -83,7 +99,7 @@ function resumeAccountPrompt(
           [
             lane.id,
             lane.name,
-            `lane-${String.fromCharCode(97 + index)}`,
+            agentLaneAlias(index),
           ].includes(reference),
         );
       if (!singleReference) return clause;
@@ -462,17 +478,35 @@ export function createGoalRuntime(deps: GoalRuntimeDependencies) {
     await deps.validateRequested?.(principal, prepared);
     signal.throwIfAborted();
     const issued = now();
+    const confirmation = await deps.authorizeExecution?.(principal, prepared);
+    if (
+      !confirmation ||
+      !/^[A-Za-z0-9_:.-]{1,240}$/.test(confirmation.confirmationId) ||
+      confirmation.fingerprint !== prepared.fingerprint ||
+      canonical(confirmation.scopes) !== canonical(prepared.scopes) ||
+      ![0, 1, 2].includes(confirmation.maxRetries) ||
+      !Number.isFinite(Date.parse(confirmation.expiresAt)) ||
+      Date.parse(confirmation.expiresAt) <= issued.getTime() ||
+      Date.parse(confirmation.expiresAt) > issued.getTime() + 600000
+    )
+      throw failure(
+        "LOCAL_CONFIRMATION_REQUIRED",
+        "请在本地核对账号与任务清单并确认执行；自然语言和模型工具不会授予新执行权限。",
+      );
+    await deps.assertCurrent(principal, requestId);
+    signal.throwIfAborted();
     const goal = await deps.goals.create({
       ...principal,
       selection,
       grant: {
-        id: `grant-${randomUUID()}`,
-        source: "user-message",
+        id: `grant-${confirmation.confirmationId}`,
+        source: "local-confirmation",
         sessionId: principal.sessionId,
         turnId: principal.turnId,
         issuedAt: issued.toISOString(),
-        expiresAt: new Date(issued.getTime() + 6 * 60 * 60_000).toISOString(),
-        maxRetries: 2,
+        expiresAt: confirmation.expiresAt,
+        maxRetries: confirmation.maxRetries,
+        planHash: prepared.fingerprint,
         scopes: prepared.scopes,
       },
     });

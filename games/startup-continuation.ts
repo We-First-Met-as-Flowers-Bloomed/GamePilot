@@ -1,3 +1,4 @@
+import { readableHistorySnapshot } from "./history-gate";
 import type { ExecutionRecord } from "../packages/protocol/execution";
 import type { TaskRecord } from "../packages/protocol/task-record";
 import {
@@ -17,6 +18,7 @@ import { onmyojiStepEvidence } from "./onmyoji/evidence";
 import { historyGameDay } from "./agent-history";
 import { projectExecutionDetail } from "./execution-detail";
 import { games } from "./registry";
+import { asRecord as object } from "../packages/protocol/struct";
 
 export type StartupFailureProof = {
   parentId: string;
@@ -24,12 +26,8 @@ export type StartupFailureProof = {
   observedAt: string;
 };
 
-const object = (value: unknown): Record<string, any> | undefined =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, any>)
-    : undefined;
-
 function physicalBinding(request: ExecutionRecord) {
+  if (!readableHistorySnapshot(request)) return;
   validateRequestId(request.id);
   if (
     request.version !== 1 ||
@@ -184,15 +182,28 @@ export function startupFailureProof(
       )
         return;
     }
+    // 分组索引：避免 tasks × requests 的嵌套全量过滤（账本增长后 O(n²) 变慢）。
+    const requestsByExecution = new Map<string, ExecutionRecord[]>();
+    for (const request of requests) {
+      const group = requestsByExecution.get(request.id);
+      if (group) group.push(request);
+      else requestsByExecution.set(request.id, [request]);
+    }
+    const tasksByExecution = new Map<string, TaskRecord[]>();
+    for (const task of tasks) {
+      const group = tasksByExecution.get(task.executionId ?? "");
+      if (group) group.push(task);
+      else tasksByExecution.set(task.executionId ?? "", [task]);
+    }
     const associated = (task: TaskRecord) => {
-      const matches = requests.filter((r) => r.id === task.executionId);
+      const matches = requestsByExecution.get(task.executionId ?? "") ?? [];
       if (matches.length !== 1) return;
       const request = matches[0],
         bound = safePhysicalBinding(request);
       if (!bound) return;
       const detail = projectExecutionDetail(
         request,
-        tasks.filter((t) => t.executionId === request.id),
+        tasksByExecution.get(task.executionId ?? "") ?? [],
       );
       if (
         detail.warnings.length ||

@@ -337,11 +337,12 @@ it("wires the actual host callback to per-turn context while preserving the host
     new URL("../apps/desktop/main/index.ts", import.meta.url),
     "utf8",
   );
-  const start = source.indexOf("runtimeRun: async (");
-  const end = source.indexOf(",\n        modelConnection:", start);
+  const normalizedSource = source.replace(/\r\n/g, "\n");
+  const start = normalizedSource.indexOf("runtimeRun: async (");
+  const end = normalizedSource.indexOf(",\n        modelConnection:", start);
   expect(start).toBeGreaterThan(0);
   expect(end).toBeGreaterThan(start);
-  const callback = source.slice(start + "runtimeRun: ".length, end);
+  const callback = normalizedSource.slice(start + "runtimeRun: ".length, end);
   const bind = vi.fn(() => ({ marker: "unchanged-host-binding" }));
   const snapshots = vi.fn(() => ({ goals: [goal()] }));
   const planned = vi.fn(
@@ -358,6 +359,7 @@ it("wires the actual host callback to per-turn context while preserving the host
     "createDshTurnContext",
     "app",
     "join",
+    "copilotToolBinding",
     `return (${callback});`,
   )(
     { bind },
@@ -371,6 +373,7 @@ it("wires the actual host callback to per-turn context while preserving the host
       getPath: () => "/offline",
     },
     join,
+    undefined,
   );
   const argumentsFor = (turnId: string) => ({
     snapshot: { source: "recorded" },

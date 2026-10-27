@@ -49,7 +49,7 @@ export default function Workspace({
         <>
           <div className="workspace-scope">
             <p>
-              单设备高级工具：使用手动连接的设备和当前游戏配置。双账号日常与定时任务在每日计划中管理。
+              高级设备工具使用手动连接的设备与当前游戏档案。各账号的日常和定时任务在每日任务中管理。
             </p>
             <button
               className="text-button"

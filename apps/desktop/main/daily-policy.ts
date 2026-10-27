@@ -4,6 +4,13 @@ export function validateLaneProfiles(
   lanes: DeviceLane[],
   profiles: ArknightsProfiles,
 ) {
+  for (const lane of lanes) {
+    if (!lane.enabled || !lane.identityRequired) continue;
+    if (lane.arknights.enabled && !profiles.profiles.find(p => p.id === lane.arknights.profileId)?.expectedUid)
+      throw Error(`${lane.name} 请先绑定独立账号 UID，再启用渠道`);
+    if (lane.onmyoji.enabled && !lane.onmyoji.identity)
+      throw Error(`${lane.name} 请先绑定阴阳师角色，再启用渠道`);
+  }
   for (const lane of lanes)
     if (
       lane.enabled &&

@@ -32,7 +32,7 @@ h3 {
   color: var(--text);
 }
 .version {
-  font-size: 8px;
+  font-size: var(--font-xs);
   letter-spacing: 0.5px;
 }
 .main-shell {
@@ -53,7 +53,7 @@ h3 {
   color: var(--accent);
 }
 .nav-caption {
-  font-size: 11px;
+  font-size: var(--font-xs);
   letter-spacing: 0.4px;
   margin-top: 28px;
 }
@@ -62,11 +62,11 @@ h3 {
 }
 .game-link.selected {
   background: var(--surface);
-  box-shadow: 0 1px 3px #0f172a08;
+  box-shadow: 0 1px 3px var(--shadow-color);
   color: var(--text);
 }
 .game-link small {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--muted);
 }
 .game-avatar {
@@ -84,13 +84,13 @@ h3 {
   gap: 9px;
   margin: 16px 11px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .local-status {
   font-size: 12px;
 }
 .local-status small {
-  font-size: 10px;
+  font-size: var(--font-xs);
 }
 .topbar {
   height: 60px;
@@ -105,7 +105,7 @@ h3 {
   padding: 6px 10px;
 }
 .top-label {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .content-layout {
   min-height: calc(100vh - 60px);
@@ -115,7 +115,7 @@ h3 {
   padding: 36px 40px 44px;
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: var(--font-xs);
   letter-spacing: 1.6px;
   color: var(--muted);
   margin-bottom: 15px;
@@ -186,7 +186,7 @@ h3 {
   padding: 28px 40px 44px;
 }
 .badge {
-  font-size: 11px;
+  font-size: var(--font-xs);
   background: var(--surface-muted);
   color: var(--muted);
   padding: 5px 9px;
@@ -197,7 +197,7 @@ h3 {
   padding: 22px;
   border: 1px solid var(--line);
   background: var(--surface);
-  box-shadow: 0 2px 5px #0f172a03;
+  box-shadow: 0 2px 5px var(--shadow-color);
 }
 .composer-top {
   color: var(--text);
@@ -228,7 +228,7 @@ h3 {
   display: inline-flex;
   gap: 7px;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--font-xs);
   border: 1px solid var(--line);
   padding: 7px 9px;
   border-radius: 8px;
@@ -236,7 +236,7 @@ h3 {
 }
 .daily-route b {
   font-weight: 500;
-  font-size: 10px;
+  font-size: var(--font-xs);
   color: var(--muted);
 }
 .task-section-heading {
@@ -261,7 +261,7 @@ h3 {
   font-weight: 500;
 }
 .group-heading > span {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--muted);
 }
 .skill-list {
@@ -293,7 +293,7 @@ h3 {
 }
 .skill-number {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .skill-copy {
   min-width: 0;
@@ -309,7 +309,7 @@ h3 {
 }
 .readiness {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .skill-tail {
   gap: 12px;
@@ -346,14 +346,14 @@ h3 {
 }
 .segmented button.active {
   color: var(--text);
-  box-shadow: 0 1px 3px #0f172a0a;
+  box-shadow: 0 1px 3px var(--shadow-color);
 }
 .selection-composer {
   margin-top: 28px;
   margin-bottom: 10px;
 }
 .helper {
-  font-size: 11px;
+  font-size: var(--font-xs);
   line-height: 1.7;
   align-items: flex-start;
 }
@@ -462,7 +462,7 @@ h3 {
   min-width: 0;
 }
 .event-list time {
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .empty-log {
   padding: 50px 0;
@@ -504,7 +504,7 @@ h3 {
 .device-empty p,
 .device-note p,
 .device-meta {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--muted);
 }
 .panel-title {
@@ -588,7 +588,7 @@ h3 {
   gap: 8px;
 }
 .routine-days legend {
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--muted);
   margin-bottom: 8px;
 }
@@ -596,7 +596,7 @@ h3 {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .routine-days:disabled {
   opacity: 0.5;
@@ -758,7 +758,7 @@ h3 {
 .task-step-status {
   float: right;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .task-steps [data-state="running"] .task-step-status,
 .task-steps [data-state="succeeded"] .task-step-status {
@@ -781,7 +781,7 @@ h3 {
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .workspace-scope {
   display: flex;
@@ -840,4 +840,46 @@ h3 {
     grid-column: 1 / -1;
     justify-self: start;
   }
+}
+/* Temporary jobs share the workspace's existing controls and surface tokens. */
+.copilot-library {
+  margin-bottom: 20px;
+}
+.copilot-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+}
+.copilot-controls label {
+  display: grid;
+  gap: 6px;
+  min-width: 120px;
+}
+.copilot-controls input,
+.copilot-controls select {
+  max-width: 240px;
+}
+.copilot-review {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.copilot-results {
+  padding-left: 20px;
+}
+.copilot-results li,
+.copilot-review li {
+  margin-block: 8px;
+  overflow-wrap: anywhere;
+}
+.copilot-receipt {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.copilot-receipt p {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
 }

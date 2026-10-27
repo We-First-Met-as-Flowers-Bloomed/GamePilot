@@ -1,15 +1,34 @@
 import {
+  OnmyojiAutomationService,
+  OnmyojiAutomationStore,
+  freezeOnmyojiJob,
+} from "./onmyoji-automation";
+import {
+  defaultOnmyojiAutomation,
+  validateOnmyojiAutomation,
+  type OnmyojiJob,
+} from "../../../packages/protocol/onmyoji-automation";
+import { createAutomationRun } from "./game-automation-host";
+import { createGameAutomationControl } from "./game-automation-control";
+import { registerGameAutomationIpc } from "./ipc/game-automation";
+import {
   dailyLaneScope,
   maintenanceLanes,
   validateLaneProfiles,
 } from "./daily-policy";
+import {
+  createChannelDailyScheduleStore,
+  createChannelFosterScheduleStore,
+} from "./channel-schedule-store";
 import { arknightsDailySkills } from "../../../games/arknights/daily-plan";
+import { resolveArknightsTaskOptions } from "../../../games/arknights/task-options";
 import { launchIndependentLanes } from "./lane-batch";
 import { validateArknightsCapabilities } from "../../../games/arknights/capabilities";
 import { arknightsGameDay } from "../../../games/arknights/result-policy";
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   powerMonitor,
   safeStorage,
@@ -17,8 +36,23 @@ import {
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { mkdir, writeFile } from "node:fs/promises";
+import { registerArknightsAutomationIpc } from "./ipc/arknights-automation";
 import { dailySkills, games } from "../../../games/registry";
 import { ArknightsStore } from "./arknights-settings";
+import { CopilotService } from "./copilot-service";
+import { withCopilotReadTools } from "../../../packages/agent/copilot-tools";
+import {
+  copilotBinding,
+  copilotConfigurationRevision,
+  freezeCopilotExecution,
+} from "./copilot-admission";
+import { resolveCopilotStage } from "../../../games/arknights/copilot-stage";
+import engineContract from "../../../games/arknights/engine-contract.json";
+import {
+  validateCopilotConfirmation,
+  validateCopilotPreparation,
+} from "../../../packages/protocol/copilot";
+import { copilotReviewFromPlan } from "../../../packages/protocol/copilot-review";
 import {
   activeArknightsConfig,
   validateArknightsProfiles,
@@ -59,12 +93,20 @@ import {
 import { validateRequestId } from "../../../packages/protocol/execution";
 import {
   freezeLaneExecution,
+  freezeLaneExecutionForGame,
+  scheduledGames,
   type LaneExecutionSnapshot,
 } from "./lane-snapshot";
+import { freezeLaneDevice } from "./lane-device";
 import { WorkerClient } from "./worker-client";
 import { assertMaintenanceClear } from "./maintenance-guard";
+import { registerSettingsIpc } from "./ipc/settings";
 import { AutomationStore } from "./automation";
-import { detectMuMu, ensureMuMu, connectWhenReady, resolveMuMu } from "./mumu";
+import { currentMuMuDevice, detectMuMu } from "./mumu";
+import {
+  DevicePreparationService,
+  type PreparedMuMuDevice,
+} from "./device-preparation";
 import { initializeProfile } from "./profile";
 import { validateAutomation, type Plan } from "../../../packages/protocol";
 import { createHash, randomUUID } from "node:crypto";
@@ -83,10 +125,23 @@ import type {
 } from "../../../packages/protocol";
 import { DeviceLaneStore } from "./device-lanes";
 import { LaneRuntimeManager, type LaneWorker } from "./lane-runtime";
+import { LanePreviewService } from "./lane-preview";
+import { resolveMuMuPreviewTarget } from "./lane-preview-target";
 import { executeLanePlan, runWorkerPlan } from "./lane-plan";
+import { resolveRunStage } from "./activity-stage-sync";
+import { InternalActivityStageResolver } from "./internal-activity-stage";
+import {
+  ArknightsAutomationService,
+  ArknightsAutomationStore,
+} from "./arknights-automation";
+import {
+  defaultArknightsAutomation,
+  type ArknightsJob,
+} from "../../../packages/protocol/arknights-automation";
+import { freezeArknightsJob } from "./arknights-job-snapshot";
+import { createArknightsAutomationRun } from "./arknights-automation-host";
 import { SkillResultQueue, findFosterLane } from "./skill-results";
 import { discoverMuMuInstances } from "./mumu";
-import { checkDeviceReady } from "../../../packages/runtime/device-ready";
 import { runBudget, runFailure } from "../../../packages/runtime/run-budget";
 import { RunObservationStore } from "./run-observations";
 import { version as appVersion } from "../../../package.json";
@@ -117,13 +172,12 @@ import {
   prepareAgentExecution,
 } from "./agent-execution-policy";
 import { launchAgentBatch } from "./agent-execution-batch";
-import { assertAgentScheduleClear } from "./agent-schedule-guard";
+import { assertDailyHistoryClear } from "./daily-history-guard";
 import {
   scheduledStartupRetry,
   unsubmittedStartupFailure,
 } from "./scheduled-startup-retry";
 import { releaseMaintenancePauses } from "./maintenance-resume";
-import { dailyMissedNotices } from "./daily-missed-notice";
 import { gameAgentCatalog } from "../../../games/agent";
 import {
   frozenAdmissionPolicy,
@@ -184,6 +238,14 @@ const modelProvider = new ModelProviderStore(
 let modelOperation: AbortController | undefined;
 let goals: GoalService | undefined;
 let goalRuntime: ReturnType<typeof createGoalRuntime> | undefined;
+let copilotToolBinding:
+  | ((
+      binding: import("../../../packages/protocol/agent-runtime").AgentRuntimeToolBinding,
+      principal: import("../../../packages/protocol/agent-runtime").AgentRuntimePrincipal,
+      requestId: string,
+      snapshot: import("../../../packages/protocol/agent").AgentSnapshot,
+    ) => import("../../../packages/protocol/agent-runtime").AgentRuntimeToolBinding)
+  | undefined;
 let goalTimer: ReturnType<typeof setInterval> | undefined;
 const goalNotifications = new Set<AbortController>();
 const goalNotificationJobs = new Set<Promise<void>>();
@@ -200,10 +262,14 @@ const planner =
     ? plannerUiFixture()
     : new PlannerService({
         runtimeRun: async ({ snapshot, principal, requestId, ...options }) => {
-          const binding =
+          const baseBinding =
             principal &&
             snapshot.source !== "disk" &&
             goalRuntime?.bind(principal, requestId, snapshot.source);
+          const binding =
+            baseBinding && principal && copilotToolBinding
+              ? copilotToolBinding(baseBinding, principal, requestId, snapshot)
+              : baseBinding;
           return planWithDsh(createAgentTools(snapshot), {
             ...options,
             binding: binding || undefined,
@@ -237,6 +303,7 @@ const planner =
       });
 let worker: WorkerClient;
 let laneRuntime: LaneRuntimeManager | undefined;
+let lanePreview: LanePreviewService | undefined;
 let history: HistoryStore;
 let runLedger: RunLedger;
 let executions: ExecutionCoordinator;
@@ -244,6 +311,8 @@ let quitting = false;
 let closeToTray = false;
 let presence: DesktopPresence | undefined;
 let scheduleTimer: ReturnType<typeof setInterval> | undefined;
+let arknightsAutomation: ArknightsAutomationService | undefined;
+let onmyojiAutomation: OnmyojiAutomationService | undefined;
 let incidentAgent: IncidentAgentService | undefined;
 let chat: ChatService | undefined;
 let agentJournal: AgentEventJournal | undefined;
@@ -268,7 +337,7 @@ async function createWindow() {
     title: "GamePilot",
     backgroundColor: "#faf9f6",
     autoHideMenuBar: true,
-    show: !smoke || (plannerPreview && !process.argv.includes("--hidden")),
+    show: !process.argv.includes("--hidden") && (!smoke || plannerPreview),
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,
@@ -424,6 +493,13 @@ if (ownsInstance)
           runLedger.snapshot(Number.MAX_SAFE_INTEGER),
         );
       await history.load();
+      lanePreview = new LanePreviewService({
+        readLanes: () => deviceLanes.read(),
+        resolveIdleTarget: async (lane) => {
+          if (quitting || laneRuntime?.isRunning(lane.id)) return undefined;
+          return resolveMuMuPreviewTarget(lane).catch(() => undefined);
+        },
+      });
       await observations.recoverInterrupted(history.snapshot());
       let starting = false;
       let connecting = false;
@@ -431,6 +507,7 @@ if (ownsInstance)
       let automaticReserved = false;
       let startupInspectionRunning = false;
       let configuring = false;
+      let configuringGamePlans = false;
       let connectedDevice: Device | undefined;
       const laneDailySchedulers = new Map<string, DailyScheduler>();
       const laneFosterSchedulers = new Map<string, IntervalScheduler>();
@@ -444,9 +521,7 @@ if (ownsInstance)
         let scheduler = laneFosterSchedulers.get(lane.id);
         if (!scheduler) {
           scheduler = new IntervalScheduler(
-            new IntervalScheduleStore(
-              join(dataDir, "lanes", lane.id, "foster-scheduler.json"),
-            ),
+            createChannelFosterScheduleStore(dataDir, lane),
             6 * 60 * 60_000,
             30 * 60_000,
             async () => {
@@ -499,6 +574,11 @@ if (ownsInstance)
       const settings = new SettingsStore(join(dataDir, "settings.json"));
       const arknights = new ArknightsStore(join(dataDir, "arknights.json"));
       const automation = new AutomationStore(join(dataDir, "automation.json"));
+      const devicePreparation = new DevicePreparationService();
+      const activityStageResolver = new InternalActivityStageResolver(
+        join(dataDir, "activity-stage-cache.json"),
+      );
+      process.env.GAMEPILOT_MAA_ACTIVITY_ROOT = join(dataDir, "maa-activity");
       const deviceLanes = new DeviceLaneStore(
         join(dataDir, "device-lanes.json"),
         async () => {
@@ -703,6 +783,11 @@ if (ownsInstance)
         dataDir,
         undefined,
         (engine, resources) => executions.trackWorker(engine, resources),
+        {
+          maxConcurrent: 4,
+          minFreeMemoryBytes: 1024 ** 3,
+          waitTimeoutMs: 30 * 60_000,
+        },
       );
       laneRuntime.on("event", (event: RunEvent) => {
         void publish(event).catch((error) => {
@@ -773,6 +858,9 @@ if (ownsInstance)
             [
               "gp:start",
               "gp:lane-start",
+              "gp:game-slot-start",
+              "gp:game-slot-stop",
+              "gp:arknights-job-run",
               "gp:continuation-start",
               "gp:lanes-start",
               "gp:connect",
@@ -861,6 +949,10 @@ if (ownsInstance)
       handle("gp:chat-new", () => chat!.newChat());
       handle("gp:chat-select", (id) => chat!.select(id));
       handle("gp:chat-archive", (input) => chat!.archive(input));
+      handle("gp:chat-archive-restore", (input) =>
+        chat!.restoreArchived(input),
+      );
+      handle("gp:chat-delete", (input) => chat!.delete(input));
       handle("gp:chat-archives", (input) => chat!.listArchived(input));
       handle("gp:chat-archive-load", (input) => chat!.loadArchived(input));
       handle("gp:chat-send", async (input) => {
@@ -1014,62 +1106,31 @@ if (ownsInstance)
           engineError,
         };
       });
-      handle("gp:arknights", () => arknights.read());
-      handle("gp:device-lanes", () => deviceLanes.read());
-      handle("gp:device-lanes-save", async (input) => {
-        const current = await deviceLanes.read();
+      handle("gp:lane-preview-capture", async (input) => {
         if (
-          executions.active ||
-          chatCommands?.busy ||
-          starting ||
-          connecting ||
-          finishing ||
+          smoke ||
+          plannerPreview ||
+          quitting ||
           configuring ||
-          automaticReserved ||
-          startupInspectionRunning ||
-          current.lanes.some((lane) => laneRuntime!.isRunning(lane.id))
+          startupInspectionRunning
         )
-          throw new Error("设备槽位运行期间不能修改配置");
-        configuring = true;
-        try {
-          const value = validateDeviceLanes(input);
-          validateLaneProfiles(value.lanes, await arknights.read());
-          return await deviceLanes.save(value);
-        } finally {
-          configuring = false;
-        }
+          throw Error("当前环境暂不读取执行设备画面");
+        const frame = await lanePreview!.capture(input);
+        const suffix = `:${frame.laneId}`;
+        const batchId = frame.requestId?.endsWith(suffix)
+          ? frame.requestId.slice(0, -suffix.length)
+          : undefined;
+        return batchId && laneRuntime?.isRunningBatch(frame.laneId, batchId)
+          ? frame
+          : { ...frame, requestId: undefined, gameId: undefined };
       });
-      handle("gp:mumu-instances", async (input) => {
-        const managerPath =
-          typeof input === "string" && input
-            ? input
-            : (await automation.read()).managerPath;
-        if (!managerPath) throw new Error("请先检测并选择 MuMu 安装位置");
-        return discoverMuMuInstances(managerPath);
-      });
-      handle("gp:arknights-save", async (input) => {
-        if (
-          starting ||
-          chatCommands?.busy ||
-          connecting ||
-          finishing ||
-          configuring ||
-          automaticReserved ||
-          startupInspectionRunning ||
-          executions.active ||
-          history.active
-        )
-          throw Error("任务或设置操作正在进行");
-        configuring = true;
-        try {
-          const value = validateArknightsProfiles(input);
-          validateLaneProfiles((await deviceLanes.read()).lanes, value);
-          return await arknights.save(value);
-        } finally {
-          configuring = false;
-        }
-      });
-      handle("gp:arknights-probe", async () => {
+      handle("gp:onmyoji-identity-inspect", async (input) => {
+        if (typeof input !== "string") throw Error("设备槽位编号无效");
+        const configuredLane = (await deviceLanes.read()).lanes.find(
+          (l) => l.id === input,
+        );
+        if (!configuredLane) throw Error("设备槽位不存在");
+        const lane = freezeLaneDevice(configuredLane, ["onmyoji"]);
         if (
           starting ||
           connecting ||
@@ -1078,37 +1139,85 @@ if (ownsInstance)
           automaticReserved ||
           startupInspectionRunning ||
           executions.active ||
-          history.active
+          history.active ||
+          laneRuntime!.isRunning(lane.id)
         )
-          throw Error("请在任务结束后检测内核");
+          throw Error("请在任务结束后核对角色页面");
         configuring = true;
         try {
-          return await executions.inspect(["*"], () =>
-            worker.request("arknights-probe", undefined, 60000),
+          return await executions.inspect(
+            [mumuResource(lane.managerPath, lane.instance)],
+            async () => {
+              const device = await currentMuMuDevice(
+                lane.managerPath,
+                lane.instance,
+              );
+              const reader = new WorkerClient(
+                join(__dirname, "../worker/index.cjs"),
+                join(dataDir, "identity-inspection", randomUUID()),
+              );
+              executions.trackWorker(reader, () => [
+                mumuResource(lane.managerPath, lane.instance),
+              ]);
+              try {
+                await reader.request("connect", device, 60000);
+                const result = await reader.request<{
+                  inspection: import("../../../packages/protocol/onmyoji-identity").OnmyojiIdentityInspection;
+                }>(
+                  "inspect-onmyoji-identity",
+                  { config: { identity: lane.onmyoji.identity } },
+                  10000,
+                );
+                return result.inspection;
+              } finally {
+                await reader.closeAndWait();
+              }
+            },
           );
         } finally {
           configuring = false;
         }
       });
-      handle("gp:settings", async (input) => {
-        if (
-          starting ||
-          chatCommands?.busy ||
-          connecting ||
-          finishing ||
-          automaticReserved ||
-          startupInspectionRunning ||
-          executions.active ||
-          configuring ||
-          history.active
-        )
-          throw Error("任务或设置操作正在进行");
-        configuring = true;
-        try {
-          return await settings.save(input);
-        } finally {
-          configuring = false;
-        }
+      registerSettingsIpc({
+        register: (channel, handler) => handle(channel, handler),
+        busy: () => ({
+          starting,
+          connecting,
+          finishing,
+          configuring,
+          automaticReserved,
+          startupInspectionRunning,
+          chatBusy: chatCommands?.busy === true,
+          executionsActive: executions.active,
+          historyActive: history.active,
+        }),
+        withConfiguring: async (action) => {
+          configuring = true;
+          try {
+            return await action();
+          } finally {
+            configuring = false;
+          }
+        },
+        anyLaneRunning: (lanes) =>
+          lanes.lanes.some((lane) => laneRuntime!.isRunning(lane.id)),
+        validateDeviceLanes,
+        deviceLanes: {
+          read: () => deviceLanes.read(),
+          save: (value) => deviceLanes.save(value),
+        },
+        arknights: {
+          read: () => arknights.read(),
+          save: (value) => arknights.save(value),
+        },
+        settings: { save: (input) => settings.save(input) },
+        automation: { read: () => automation.read() },
+        invalidatePreview: () => lanePreview?.invalidateAll(),
+        discoverInstances: (managerPath) => discoverMuMuInstances(managerPath),
+        probeArknights: () =>
+          executions.inspect(["*"], () =>
+            worker.request("arknights-probe", undefined, 60000),
+          ),
       });
       handle("gp:quit", () => {
         setImmediate(() => app.quit());
@@ -1340,60 +1449,28 @@ if (ownsInstance)
               };
               await emit("准备模拟器", "running");
               try {
-                const detected = await resolveMuMu(
-                  config.managerPath,
-                  (await settings.read()).adbPath,
-                );
-                preparing.signal.throwIfAborted();
-                if (config.managerPath !== detected.managerPath) {
-                  config.managerPath = detected.managerPath;
-                  await automation.save(config);
-                }
-                const installation = await ensureMuMu(
-                  config.managerPath,
-                  config.instance,
-                  preparing.signal,
-                  (message) => {
-                    void emit(message);
-                  },
-                );
-                owned = installation;
-                preparing.signal.throwIfAborted();
-                lastEngine = await connectWhenReady(
-                  () =>
-                    worker.request<EngineInfo>(
-                      "connect",
-                      {
-                        name: "MuMu",
-                        adbPath: installation.adbPath,
-                        address: installation.address,
-                      },
-                      60000,
-                    ),
-                  preparing.signal,
-                  undefined,
-                  async (retry) => {
-                    await emit(`设备连接临时失败，重新检查后重试 ${retry}/2`);
-                    await checkDeviceReady(
-                      {
-                        name: "MuMu",
-                        adbPath: installation.adbPath,
-                        address: installation.address,
-                      },
-                      preparing!.signal,
-                    );
-                  },
-                );
-                connectedDevice = {
+                const prepared = await devicePreparation.prepareMuMu({
                   name: "MuMu",
-                  adbPath: installation.adbPath,
-                  address: installation.address,
-                };
-                preparing.signal.throwIfAborted();
+                  managerPath: config.managerPath,
+                  adbPath: (await settings.read()).adbPath,
+                  instance: config.instance,
+                  worker,
+                  signal: startController.signal,
+                  log: emit,
+                  onResolved: async (managerPath) => {
+                    if (config.managerPath !== managerPath) {
+                      config.managerPath = managerPath;
+                      await automation.save(config);
+                    }
+                  },
+                });
+                owned = prepared.owned;
+                lastEngine = prepared.engine;
+                connectedDevice = prepared.device;
                 await settings.save({
                   ...(await settings.read()),
-                  adbPath: installation.adbPath,
-                  address: installation.address,
+                  adbPath: prepared.device.adbPath,
+                  address: prepared.device.address,
                 });
                 await emit("模拟器已就绪", "succeeded");
               } catch (error) {
@@ -1404,28 +1481,13 @@ if (ownsInstance)
                 throw error;
               }
             }
-            lastEngine = await worker.request<EngineInfo>("info");
-            if (!lastEngine.connected) {
-              const saved = await settings.read();
-              if (!saved.adbPath || !saved.address)
-                throw new Error(
-                  "请前往设备页连接模拟器，保存 ADB 路径和设备地址后再执行每日任务",
-                );
-              lastEngine = await worker.request<EngineInfo>(
-                "connect",
-                validateDevice({
-                  name: "已保存的设备",
-                  adbPath: saved.adbPath,
-                  address: saved.address,
-                }),
-                60000,
-              );
-              connectedDevice = {
-                name: "已保存的设备",
-                adbPath: saved.adbPath,
-                address: saved.address,
-              };
-            }
+            const connected = await devicePreparation.ensureConnected({
+              worker,
+              signal: startController.signal,
+              readDevice: () => settings.read(),
+            });
+            lastEngine = connected.engine;
+            if (connected.device) connectedDevice = connected.device;
             engineError = undefined;
           }
           let resolve!: (status: string) => void;
@@ -1532,10 +1594,12 @@ if (ownsInstance)
         dailySlot?: import("./scheduler").DailySlot,
       ) => {
         const { lane, profile, arknightsPlan, onmyojiPlan } = frozen;
+        // A reused worker must not attribute preparation frames to its previous batch.
+        lanePreview?.unregister(lane.id, laneWorker);
         const startedAt = new Date(frozen.startedAt);
         let activeGameId = lane.arknights.enabled ? "arknights" : "onmyoji";
         let budget: ReturnType<typeof runBudget> | undefined;
-        let owned: Awaited<ReturnType<typeof ensureMuMu>> | undefined;
+        let owned: PreparedMuMuDevice["owned"] | undefined;
         const saveObservation = (
           status: "succeeded" | "failed" | "cancelled",
           message: string,
@@ -1603,6 +1667,10 @@ if (ownsInstance)
             {
               gameStarted: (gameId) => {
                 activeGameId = gameId;
+                lanePreview?.updateContext(lane.id, laneWorker, {
+                  requestId: `${batchId}:${lane.id}`,
+                  gameId,
+                });
               },
               prepare: async () => {
                 const controller = new AbortController();
@@ -1611,38 +1679,24 @@ if (ownsInstance)
                 if (signal.aborted) controller.abort(signal.reason);
                 lanePreparations.set(lane.id, controller);
                 try {
-                  const resolved = await resolveMuMu(lane.managerPath, "");
-                  owned = await ensureMuMu(
-                    resolved.managerPath,
-                    lane.instance,
-                    controller.signal,
-                    (message) => void emit(message),
-                  );
-                  await connectWhenReady(
-                    () =>
-                      laneWorker.request<EngineInfo>(
-                        "connect",
-                        {
-                          name: lane.name,
-                          adbPath: owned!.adbPath,
-                          address: owned!.address,
-                        },
-                        60000,
-                      ),
-                    controller.signal,
-                    undefined,
-                    async (retry) => {
-                      await emit(`设备连接临时失败，重新检查后重试 ${retry}/2`);
-                      await checkDeviceReady(
-                        {
-                          name: lane.name,
-                          adbPath: owned!.adbPath,
-                          address: owned!.address,
-                        },
-                        controller.signal,
-                      );
-                    },
-                  );
+                  const prepared = await devicePreparation.prepareMuMu({
+                    name: lane.name,
+                    managerPath: lane.managerPath,
+                    instance: lane.instance,
+                    worker: laneWorker,
+                    signal: controller.signal,
+                    log: emit,
+                    preview: lanePreview
+                      ? {
+                          lane,
+                          service: lanePreview,
+                          isQuitting: () => quitting,
+                          requestId: `${batchId}:${lane.id}`,
+                          gameId: activeGameId,
+                        }
+                      : undefined,
+                  });
+                  owned = prepared.owned;
                 } finally {
                   lanePreparations.delete(lane.id);
                   signal.removeEventListener("abort", cancel);
@@ -1652,18 +1706,61 @@ if (ownsInstance)
                 if (!profile)
                   throw new Error(`${lane.name} 的明日方舟账号档案不存在`);
                 const { id: _id, name: _name, ...runtimeConfig } = profile;
-                await laneWorker.request("arknights-config", runtimeConfig);
-                await runWorkerPlan(laneWorker, arknightsPlan!, signal);
+                // P1-2：跟随当前活动关卡（活动换期自动适配）；解析失败回退档案关卡，不猜。
+                const followed = await resolveRunStage({
+                  enabled:
+                    runtimeConfig.taskOptions?.fight?.followActivity ?? false,
+                  clientType: runtimeConfig.clientType,
+                  configuredStage: runtimeConfig.stage,
+                  resolver: activityStageResolver,
+                  // 活动结束/无活动关时回退经验本 LS-5（与 daily-arknights.ps1 的 -FallbackStage 一致）
+                  fallbackStage: resolveArknightsTaskOptions(
+                    runtimeConfig.taskOptions,
+                  ).fight.fallbackStage,
+                });
+                await emit(followed.note, "running");
+                const effectiveConfig =
+                  followed.stage !== runtimeConfig.stage
+                    ? { ...runtimeConfig, stage: followed.stage }
+                    : runtimeConfig;
+                await laneWorker.request("arknights-config", effectiveConfig);
+                await runWorkerPlan(
+                  laneWorker,
+                  arknightsPlan!,
+                  signal,
+                  undefined,
+                  frozen.copilot
+                    ? () =>
+                        laneWorker.request("execute-copilot", {
+                          prepared: frozen.copilot,
+                          config: effectiveConfig,
+                        })
+                    : undefined,
+                );
                 await runLedger.flush();
               },
               closeArknights: async () => {
                 if (!profile) throw new Error("明日方舟账号档案尚未加载");
-                await laneWorker.request("arknights-close", undefined, 70000);
+                const exit = await laneWorker.request<
+                  import("../../../packages/protocol/execution-observation").WorkerExitObservation
+                >("arknights-close", undefined, 70000);
                 signal.throwIfAborted();
+                if (
+                  !owned ||
+                  exit.device.adbPath !== owned.adbPath ||
+                  exit.device.address !== owned.address
+                )
+                  throw Error("退出观察设备与本次连接不一致，不能交接下一游戏");
+                if (!lease.observe)
+                  throw Error("退出观察存储未就绪，不能交接下一游戏");
+                await lease.observe(exit);
                 budget?.dispose();
                 await emit("已确认明日方舟退出");
               },
               onmyoji: async () => {
+                await laneWorker.request("onmyoji-config", {
+                  identity: lane.onmyoji.identity,
+                });
                 await runWorkerPlan(
                   laneWorker,
                   onmyojiPlan!,
@@ -1685,7 +1782,7 @@ if (ownsInstance)
             const closed = await closeOwnedMuMu(owned);
             await emit(closed ? "已关闭本次启动的 MuMu" : "保留已有 MuMu 实例");
           }
-          const completionMessage = `${lane.name} ${maintenance ? "本次寄养维护" : continuation ? "本次续跑" : custom ? "本次单项请求" : "本次日常计划"}已完成`;
+          const completionMessage = `${lane.name} ${frozen.copilot ? "本次临时作业已通过原生逐场结果及返回主页核验" : maintenance ? "本次寄养维护已完成" : continuation ? "本次续跑已完成" : custom ? "本次单项请求已完成" : "本次日常计划已完成"}`;
           if (!maintenance && !custom)
             await saveObservation("succeeded", completionMessage);
           if (!maintenance && !custom && !scheduled)
@@ -1758,6 +1855,7 @@ if (ownsInstance)
         }
       };
       const assertLaneCanStart = async (lane: DeviceLane) => {
+        validateLaneProfiles([lane], await arknights.read());
         if (startupInspectionRunning)
           throw new Error("正在核验原生执行器退出，请稍后再试");
         if (
@@ -1782,6 +1880,17 @@ if (ownsInstance)
           throw new Error("单设备任务或设置操作正在进行，请等待结束");
       };
       const laneJobs = new Map<string, Promise<unknown>>();
+      // Only explicit single-game starts own this capability. Legacy mixed
+      // requests and automatic cycles cannot be cancelled through a slot button.
+      const gameSlotRuns = new Map<
+        string,
+        {
+          gameId: "arknights" | "onmyoji";
+          batchId: string;
+          controller: AbortController;
+          done: Promise<void>;
+        }
+      >();
       const prepareStartupInspection = async (
         resources: string[],
         signal: AbortSignal,
@@ -2227,6 +2336,8 @@ if (ownsInstance)
           await replaceFile(incidentFile + ".tmp", incidentFile, {
             atomicOnly: true,
           });
+          if (window && !window.isDestroyed())
+            window.webContents.send("gp:incident-agent-state", view);
           for (const session of view.sessions) {
             const cursor = incidentEventCursors.get(session.requestId) ?? 0;
             for (const event of session.events.filter(
@@ -2294,18 +2405,65 @@ if (ownsInstance)
         maintenance = false,
         cycleSignal?: AbortSignal,
         occurrence?: import("./scheduler").DailyOccurrence,
+        /** P1a'：只跑这个游戏（「槽位 × 游戏」= 一个账号级执行单元）。省略则保持旧行为。 */
+        game?: string,
+        gameSlot?: import("../../../packages/protocol").GameSlotTarget,
+        automationJob?: ArknightsJob | OnmyojiJob,
       ) => {
         const scheduleScope = dailyLaneScope(lane);
-        const frozen = freezeLaneExecution(
-          lane,
-          await arknights.read(),
-          maintenance,
-          new Date(),
-          occurrence?.slot,
-        );
+        const completesWholeChannel =
+          !gameSlot ||
+          (lane[gameSlot.gameId].enabled &&
+            lane.arknights.enabled !== lane.onmyoji.enabled);
+        const frozen = automationJob
+          ? game === "onmyoji"
+            ? freezeOnmyojiJob(
+                lane,
+                await arknights.read(),
+                automationJob as OnmyojiJob,
+              )
+            : freezeArknightsJob(
+                lane,
+                await arknights.read(),
+                automationJob as ArknightsJob,
+              )
+          : game
+            ? freezeLaneExecutionForGame(
+                lane,
+                await arknights.read(),
+                game,
+                maintenance,
+                new Date(),
+                occurrence?.slot,
+              )
+            : freezeLaneExecution(
+                lane,
+                await arknights.read(),
+                maintenance,
+                new Date(),
+                occurrence?.slot,
+              );
+        if (!frozen)
+          throw new Error(`槽位 ${lane.id} 的 ${game} 不在本次执行范围内`);
         lane = frozen.lane;
         cycleSignal?.throwIfAborted();
         await assertLaneCanStart(lane);
+        if (!maintenance) {
+          await runLedger.flush();
+          executions.assertHealthy();
+          runLedger.assertHealthy();
+          // 2026-10-25（用户要求去臃肿）：用户**主动点槽位运行**时，不再被"历史不确定/未完记录"拦下。
+          // 仍保留：正在运行中的互斥（assertLaneCanStart）与账本健康检查；定时任务照旧走完整历史闸门。
+          if (!gameSlot)
+            assertDailyHistoryClear(
+              frozen,
+              executions.snapshot(Number.MAX_SAFE_INTEGER),
+              runLedger.snapshot(Number.MAX_SAFE_INTEGER),
+              new Date(),
+              readStartupFacts(),
+              occurrence,
+            );
+        }
         if (maintenance)
           assertMaintenanceClear(
             lane,
@@ -2319,6 +2477,23 @@ if (ownsInstance)
           throw new Error(`${lane.name} 正在运行`);
         const admission = new AbortController();
         lanePreparations.set(lane.id, admission);
+        let settleSlot: (() => void) | undefined;
+        const slotRun = gameSlot
+          ? {
+              gameId: gameSlot.gameId,
+              batchId,
+              controller: admission,
+              done: new Promise<void>((resolve) => {
+                settleSlot = resolve;
+              }),
+            }
+          : undefined;
+        if (slotRun) gameSlotRuns.set(lane.id, slotRun);
+        const releaseSlot = () => {
+          if (slotRun && gameSlotRuns.get(lane.id) === slotRun)
+            gameSlotRuns.delete(lane.id);
+          settleSlot?.();
+        };
         let lease: ExecutionLease;
         try {
           lease = await executions.begin(
@@ -2331,11 +2506,21 @@ if (ownsInstance)
               snapshot: {
                 appVersion,
                 ...frozen,
+                ...(gameSlot
+                  ? { gameSlot: { laneId: lane.id, gameId: gameSlot.gameId } }
+                  : {}),
                 ...(occurrence
                   ? {
                       schedule: {
+                        origin: "scheduler",
                         slot: occurrence.slot,
                         dueAt: occurrence.dueAt.toISOString(),
+                        ...(automationJob
+                          ? {
+                              jobId: automationJob.id,
+                              name: automationJob.name,
+                            }
+                          : {}),
                       },
                     }
                   : {}),
@@ -2344,7 +2529,9 @@ if (ownsInstance)
             admission.signal,
           );
         } catch (error) {
-          lanePreparations.delete(lane.id);
+          if (lanePreparations.get(lane.id) === admission)
+            lanePreparations.delete(lane.id);
+          releaseSlot();
           throw error;
         }
         const job = (async () => {
@@ -2366,10 +2553,13 @@ if (ownsInstance)
                   maintenance,
                   scheduleScope,
                   false,
-                  !!occurrence,
+                  // A game-only subset cannot complete a mixed predecessor;
+                  // a V2 channel owns exactly this full saved game plan.
+                  !!occurrence || !!automationJob || !completesWholeChannel,
                 ),
               batchId,
               maintenance,
+              slotRun?.controller.signal ?? cycleSignal,
             );
             return result;
           } catch (error) {
@@ -2383,12 +2573,276 @@ if (ownsInstance)
           } finally {
             if (lanePreparations.get(lane.id) === admission)
               lanePreparations.delete(lane.id);
+            releaseSlot();
           }
         })();
         laneJobs.set(lane.id, job);
-        void job.finally(() => laneJobs.delete(lane.id)).catch(() => {});
+        void job
+          .finally(() => {
+            if (laneJobs.get(lane.id) === job) laneJobs.delete(lane.id);
+          })
+          .catch(() => {});
         return { job };
       };
+      const automationResource = async (
+        job: { laneId: string },
+        gameId: "arknights" | "onmyoji",
+      ) => {
+        const lane = (await deviceLanes.read()).lanes.find(
+          (item) => item.id === job.laneId,
+        );
+        if (!lane) throw Error("计划绑定的账号不存在");
+        const selected = freezeLaneDevice(lane, [gameId]);
+        return mumuResource(selected.managerPath, selected.instance);
+      };
+      const automationEligible = async (
+        job: { laneId: string },
+        gameId: "arknights" | "onmyoji",
+      ) => {
+        const lane = (await deviceLanes.read()).lanes.find(
+          (item) => item.id === job.laneId,
+        );
+        if (
+          !lane?.enabled ||
+          !lane[gameId].enabled ||
+          laneRuntime?.isRunning(lane.id) ||
+          laneJobs.has(lane.id) ||
+          lanePreparations.has(lane.id)
+        )
+          return false;
+        if (
+          gameId === "arknights" &&
+          !(await arknights.read()).profiles.some(
+            (profile) => profile.id === lane.arknights.profileId,
+          )
+        )
+          return false;
+        return executions.canStart([await automationResource(job, gameId)]);
+      };
+      arknightsAutomation = new ArknightsAutomationService({
+        store: new ArknightsAutomationStore(
+          join(dataDir, "arknights-automation.json"),
+          defaultArknightsAutomation((await deviceLanes.read()).lanes),
+        ),
+        isBusy: () =>
+          quitting ||
+          starting ||
+          connecting ||
+          finishing ||
+          (configuring && !configuringGamePlans) ||
+          startupInspectionRunning ||
+          !!history.active ||
+          !!context ||
+          !!chatCommands?.busy,
+        onError: (error) => console.error("方舟计划结果落盘失败", error),
+        canRunJob: (job) => automationEligible(job, "arknights"),
+        resourceKey: (job) => automationResource(job, "arknights"),
+        run: createArknightsAutomationRun({
+          readLanes: async () => (await deviceLanes.read()).lanes,
+          launchLane,
+          readExecution: (id) => executions.get(id),
+          isPreview: () => smoke || plannerPreview,
+        }),
+      });
+      onmyojiAutomation = new OnmyojiAutomationService({
+        store: new OnmyojiAutomationStore(
+          join(dataDir, "onmyoji-automation.json"),
+          defaultOnmyojiAutomation((await deviceLanes.read()).lanes),
+        ),
+        isBusy: () =>
+          quitting ||
+          starting ||
+          connecting ||
+          finishing ||
+          (configuring && !configuringGamePlans) ||
+          startupInspectionRunning ||
+          !!history.active ||
+          !!context ||
+          !!chatCommands?.busy,
+        onError: (error) => console.error("阴阳师计划结果落盘失败", error),
+        canRunJob: (job) => automationEligible(job, "onmyoji"),
+        resourceKey: (job) => automationResource(job, "onmyoji"),
+        run: createAutomationRun<
+          import("../../../packages/protocol/onmyoji-automation").OnmyojiAutomationSkill
+        >(
+          {
+            readLanes: async () => (await deviceLanes.read()).lanes,
+            launchLane,
+            readExecution: (id) => executions.get(id),
+            isPreview: () => smoke || plannerPreview,
+          },
+          "onmyoji",
+        ),
+      });
+      registerGameAutomationIpc({
+        prefix: "onmyoji",
+        register: handle,
+        service: onmyojiAutomation,
+        validate: validateOnmyojiAutomation,
+        validateJob: async (job) => {
+          const lane = (await deviceLanes.read()).lanes.find(
+            (item) => item.id === job.laneId,
+          );
+          if (!lane?.onmyoji.enabled) throw Error("计划绑定的阴阳师账号不存在");
+          if (job.enabled)
+            freezeOnmyojiJob(
+              { ...lane, enabled: true },
+              await arknights.read(),
+              job,
+            );
+        },
+        busy: () =>
+          automaticReserved ||
+          executions.active ||
+          !!laneRuntime?.active ||
+          configuring ||
+          quitting ||
+          starting ||
+          connecting ||
+          finishing ||
+          startupInspectionRunning ||
+          !!history.active ||
+          !!context ||
+          !!chatCommands?.busy,
+        runBusy: () => automaticReserved || configuring || quitting,
+        withConfiguring: async (action) => {
+          configuring = true;
+          configuringGamePlans = true;
+          try {
+            return await action();
+          } finally {
+            configuring = false;
+            configuringGamePlans = false;
+          }
+        },
+      });
+      registerArknightsAutomationIpc({
+        register: handle,
+        dataDir,
+        service: arknightsAutomation,
+        activity: activityStageResolver,
+        readLanes: async () => (await deviceLanes.read()).lanes,
+        readProfiles: () => arknights.read(),
+        busy: () =>
+          automaticReserved ||
+          executions.active ||
+          !!laneRuntime?.active ||
+          configuring ||
+          quitting ||
+          starting ||
+          connecting ||
+          finishing ||
+          startupInspectionRunning ||
+          !!history.active ||
+          !!context ||
+          !!chatCommands?.busy,
+        runBusy: () => automaticReserved || configuring || quitting,
+        withConfiguring: async (action, purpose) => {
+          configuring = true;
+          configuringGamePlans = purpose === "plans";
+          try {
+            return await action();
+          } finally {
+            configuring = false;
+            configuringGamePlans = false;
+          }
+        },
+        chooseMaaFile: async () => {
+          const choice = await dialog.showOpenDialog(window!, {
+            title: "导入 MAA 配置",
+            properties: ["openFile"],
+            filters: [{ name: "MAA JSON 配置", extensions: ["json"] }],
+          });
+          return !choice.canceled && choice.filePaths.length === 1
+            ? choice.filePaths[0]
+            : undefined;
+        },
+      });
+      handle("gp:game-slot-start", async (input) => {
+        const value = agentObject(input, ["laneId", "gameId", "requestId"]);
+        if (
+          typeof value.laneId !== "string" ||
+          !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value.laneId)
+        )
+          throw new Error("账号渠道编号无效");
+        if (value.gameId !== "arknights" && value.gameId !== "onmyoji")
+          throw new Error("游戏槽位范围无效");
+        if (automaticReserved)
+          throw new Error("自动计划正在执行，请等待完成或停止全部任务");
+        const batchId =
+          value.requestId === undefined
+            ? randomUUID()
+            : validateRequestId(value.requestId);
+        const lane = (await deviceLanes.read()).lanes.find(
+          (item) => item.id === value.laneId,
+        );
+        if (!lane) throw new Error("账号渠道不存在");
+        const frozenDevice = freezeLaneDevice(lane, [value.gameId]);
+        try {
+          await launchLane(
+            lane,
+            batchId,
+            false,
+            undefined,
+            undefined,
+            value.gameId,
+            { laneId: lane.id, gameId: value.gameId },
+          );
+        } catch (error) {
+          if (error instanceof Error && error.name === "AbortError")
+            throw new Error(
+              `槽位「${lane.name}」的运行被中止（可能点了停止，或执行前检查未通过）；请确认模拟器实例 ${frozenDevice.instance} 正常后再试`,
+            );
+          throw error;
+        }
+        return { batchId };
+      });
+      handle("gp:game-slot-stop", async (input) => {
+        const value = agentObject(input, ["laneId", "gameId"]);
+        if (
+          typeof value.laneId !== "string" ||
+          (value.gameId !== "arknights" && value.gameId !== "onmyoji")
+        )
+          throw new Error("游戏槽位停止范围无效");
+        const owner = gameSlotRuns.get(value.laneId);
+        if (!owner || owner.gameId !== value.gameId)
+          throw new Error(
+            "没有此游戏槽位的活动请求归属；原账号计划请使用对应停止入口",
+          );
+        const record = executions.get(`${owner.batchId}:${value.laneId}`);
+        const scope = record.snapshot.gameSlot as
+          import("../../../packages/protocol").GameSlotTarget | undefined;
+        const plan = record.snapshot[`${value.gameId}Plan`] as Plan | undefined;
+        const otherPlan =
+          record.snapshot[
+            value.gameId === "arknights" ? "onmyojiPlan" : "arknightsPlan"
+          ];
+        if (
+          record.laneId !== value.laneId ||
+          record.batchId !== owner.batchId ||
+          scope?.laneId !== value.laneId ||
+          scope.gameId !== value.gameId ||
+          plan?.gameId !== value.gameId ||
+          otherPlan !== undefined ||
+          record.snapshot.plan !== undefined
+        )
+          throw new Error("游戏槽位停止范围与原请求归属不一致");
+        if (record.status !== "running") return null;
+        // Abort this admission/runtime signal before awaiting persistence or IPC.
+        // Never use stopLanes here: it cancels unrelated chat, goal and cycle work.
+        owner.controller.abort();
+        const stopping = laneRuntime!.isRunningBatch(
+          value.laneId,
+          owner.batchId,
+        )
+          ? laneRuntime!.stop(value.laneId)
+          : Promise.resolve();
+        // A failed transport must surface promptly so it can be retried; the
+        // ownership and lease remain until the actual engine job settles.
+        await stopping;
+        await owner.done;
+        return null;
+      });
       handle("gp:lane-start", async (input) => {
         if (automaticReserved)
           throw new Error("自动计划正在执行，请等待完成或停止全部任务");
@@ -2422,6 +2876,8 @@ if (ownsInstance)
         return launchIndependentLanes(lanes, batchId, launchLane);
       });
       const stopLanes = async (ids?: string[]) => {
+        arknightsAutomation?.cancelActive(ids);
+        onmyojiAutomation?.cancelActive(ids);
         chatCommands?.cancelPending();
         const selected = ids ?? [
           ...new Set([
@@ -2547,6 +3003,7 @@ if (ownsInstance)
                       ...(identity.daily
                         ? {
                             schedule: {
+                              origin: "agent",
                               slot: identity.daily.slot,
                               dueAt: frozen.startedAt,
                               scope: frozenAdmissionPolicy(identity, frozen)
@@ -2563,16 +3020,9 @@ if (ownsInstance)
                 ),
               run: async (frozen, lease, id, batchSignal) => {
                 const lane = frozen.lane;
-                const cancel = () => {
-                  void laneRuntime!.stop(lane.id).catch(() => {});
-                };
                 const job = laneRuntime!.run(
                   lane,
                   (_selected, laneWorker, laneSignal) => {
-                    batchSignal.addEventListener("abort", cancel, {
-                      once: true,
-                    });
-                    if (batchSignal.aborted) cancel();
                     return executeDeviceLane(
                       frozen,
                       laneWorker,
@@ -2585,11 +3035,11 @@ if (ownsInstance)
                       false,
                       false,
                       frozenAdmissionPolicy(identity, frozen).slot,
-                    ).finally(() =>
-                      batchSignal.removeEventListener("abort", cancel),
                     );
                   },
                   id,
+                  false,
+                  batchSignal,
                 );
                 laneJobs.set(lane.id, job);
                 try {
@@ -2711,6 +3161,258 @@ if (ownsInstance)
         },
       });
       handle("gp:agent-execution-snapshot", () => agentExecution!.snapshot());
+      const copilotServices = new Map<
+        string,
+        CopilotService<{ batchId: string; requestId: string; laneId: string }>
+      >();
+      const copilotPreparations = new Map<
+        string,
+        CopilotService<{ batchId: string; requestId: string; laneId: string }>
+      >();
+      const copilotOwners = new Map<
+        string,
+        {
+          principal: import("../../../packages/protocol/agent-runtime").AgentRuntimePrincipal;
+          requestId: string;
+        }
+      >();
+      const assertCopilotConfirmationOwner = async (preparedId: string) => {
+        const owner = copilotOwners.get(preparedId);
+        if (!owner) return;
+        const state = await chat!.snapshot(),
+          turn = state.sessions
+            .find((s) => s.id === owner.principal.sessionId)
+            ?.turns.at(-1),
+          live = planner.snapshot();
+        if (
+          state.selectedSessionId !== owner.principal.sessionId ||
+          turn?.id !== owner.principal.turnId ||
+          turn.prompt !== owner.principal.prompt ||
+          turn.planner.requestId !== owner.requestId ||
+          turn.planner.status !== "completed" ||
+          live.requestId !== owner.requestId ||
+          live.status !== "completed" ||
+          turn.planner.result?.copilot?.preparedId !== preparedId
+        )
+          throw Error("作业准备所属会话或指令已变化，请重新发送需求并确认");
+      };
+      const readCopilotConfiguration = async () => {
+        const [lanes, profiles] = await Promise.all([
+          deviceLanes.read(),
+          arknights.read(),
+        ]);
+        return {
+          lanes,
+          profiles,
+          revision: copilotConfigurationRevision(
+            lanes,
+            profiles,
+            engineContract,
+          ),
+        };
+      };
+      const resolveStage = async (code: string) => {
+        const resource = join(
+          __dirname,
+          `../resources/maa-${engineContract.version}/resource`,
+        );
+        const [stages, tiles] = await Promise.all([
+          boundedRead(join(resource, "stages.json"), 16 * 1024 * 1024),
+          boundedRead(
+            join(resource, "Arknights-Tile-Pos/overview.json"),
+            32 * 1024 * 1024,
+          ),
+        ]);
+        return resolveCopilotStage(JSON.parse(stages), JSON.parse(tiles), code);
+      };
+      const createCopilotService = (cacheDir: string) =>
+        new CopilotService({
+          cacheDir,
+          resolveStage,
+          revision: async () => (await readCopilotConfiguration()).revision,
+          account: async (profileId: string) => {
+            const c = await readCopilotConfiguration(),
+              { profile } = copilotBinding(c.lanes, c.profiles, profileId);
+            return {
+              profileId,
+              expectedUid: profile.expectedUid,
+              clientType: profile.clientType,
+              revision: c.revision,
+            };
+          },
+          execute: async (prepared) => {
+            if (smoke || plannerPreview) throw Error("预览不能执行真实作业");
+            if (
+              starting ||
+              connecting ||
+              finishing ||
+              configuring ||
+              automaticReserved ||
+              startupInspectionRunning ||
+              context ||
+              modelOperation ||
+              chat?.busy ||
+              plannerActive(planner.snapshot())
+            )
+              throw Error("任务或配置操作正在进行，请结束后重新准备");
+            await assertCopilotConfirmationOwner(prepared.preparedId);
+            const c = await readCopilotConfiguration();
+            const frozen = freezeCopilotExecution(
+              prepared,
+              c.lanes,
+              c.profiles,
+              engineContract,
+              executions.snapshot(Number.MAX_SAFE_INTEGER),
+              runLedger.snapshot(Number.MAX_SAFE_INTEGER),
+            );
+            await assertLaneCanStart(frozen.lane);
+            if (
+              starting ||
+              connecting ||
+              finishing ||
+              configuring ||
+              automaticReserved ||
+              startupInspectionRunning ||
+              context ||
+              modelOperation ||
+              chat?.busy ||
+              plannerActive(planner.snapshot())
+            )
+              throw Error("受理前任务或配置操作已变化，请重新准备");
+            // Configuration writes are guarded during durable admission, before any device work.
+            starting = true;
+            try {
+              if (
+                (await readCopilotConfiguration()).revision !==
+                prepared.revision
+              )
+                throw Error("受理前配置已变化，请重新准备作业");
+              const batchId = `copilot-${prepared.preparedId}`,
+                controller = new AbortController();
+              const { jobs } = await launchFrozen(
+                [frozen],
+                batchId,
+                controller.signal,
+                {
+                  kind: "custom",
+                  requestId: prepared.preparedId,
+                  planHash: prepared.planHash,
+                },
+              );
+              for (const { job } of jobs)
+                void job.catch((error) =>
+                  console.error("临时作业结果请核对原记录", String(error)),
+                );
+              return {
+                batchId,
+                requestId: `${batchId}:${frozen.lane.id}`,
+                laneId: frozen.lane.id,
+              };
+            } finally {
+              starting = false;
+            }
+          },
+        });
+      const copilotSearch = createCopilotService(dataDir);
+      handle("gp:copilot-search", (input) => copilotSearch.search(input));
+      const prepareCopilot = async (input: unknown, signal?: AbortSignal) => {
+        const request = validateCopilotPreparation(input),
+          c = await readCopilotConfiguration(),
+          { lane } = copilotBinding(c.lanes, c.profiles, request.profileId);
+        if (copilotPreparations.size >= 256)
+          throw Error("准备记录已达上限，请重启应用重新准备");
+        let service = copilotServices.get(lane.id);
+        if (!service) {
+          service = createCopilotService(join(dataDir, "lanes", lane.id));
+          copilotServices.set(lane.id, service);
+        }
+        const prepared = await service.prepare(request, signal);
+        copilotPreparations.set(prepared.preparedId, service);
+        return prepared;
+      };
+      handle("gp:copilot-prepare", (input) => prepareCopilot(input));
+      copilotToolBinding = (binding, principal, requestId, snapshot) =>
+        withCopilotReadTools(binding, {
+          assertCurrent: async () => {
+            if (snapshot.source === "fixture")
+              throw Error("演练不能读取或准备真实作业");
+            await assertGoalMessage(principal, requestId);
+          },
+          search: (input, signal) => copilotSearch.search(input, signal),
+          prepare: async (input, signal) => {
+            const configured = await readConfiguredSnapshot(dataDir),
+              c = await readCopilotConfiguration();
+            if (
+              canonical({
+                lanes: configured.snapshot.lanes,
+                profiles: configured.snapshot.profiles,
+              }) !==
+              canonical({ lanes: snapshot.lanes, profiles: snapshot.profiles })
+            )
+              throw Error("本轮账号目录已变化，请重新查询");
+            const index = configured.snapshot.lanes!.lanes.findIndex(
+                (l) => l.id === input.laneId,
+              ),
+              lane = c.lanes.lanes[index];
+            if (index < 0 || !lane) throw Error("作业账号槽位不存在");
+            const plan = await prepareCopilot(
+              {
+                profileId: lane.arknights.profileId,
+                stage: input.stage,
+                count: input.count,
+                skipStory: true,
+              },
+              signal,
+            );
+            copilotOwners.set(plan.preparedId, {
+              principal: structuredClone(principal),
+              requestId,
+            });
+            return copilotReviewFromPlan(plan, `槽位 ${index + 1}`);
+          },
+        });
+      handle("gp:copilot-confirm", async (input) => {
+        const request = validateCopilotConfirmation(input),
+          service = copilotPreparations.get(request.preparedId);
+        if (!service) throw Error("临时作业准备记录不存在，请重新准备");
+        await assertCopilotConfirmationOwner(request.preparedId);
+        return service.confirm(request);
+      });
+      handle("gp:copilot-cancel", async (input) => {
+        const value = agentObject(input, ["batchId", "requestId", "laneId"]),
+          batchId = validateRequestId(value.batchId),
+          requestId = validateRequestId(value.requestId),
+          laneId = validateRequestId(value.laneId);
+        if (
+          Object.keys(value).some(
+            (k) => !["batchId", "requestId", "laneId"].includes(k),
+          )
+        )
+          throw Error("作业停止范围无效");
+        const record = executions.get(requestId);
+        if (
+          record.batchId !== batchId ||
+          record.laneId !== laneId ||
+          !record.snapshot.copilot
+        )
+          throw Error("作业停止范围与执行记录不一致");
+        if (
+          record.status !== "running" ||
+          !laneRuntime!.isRunningBatch(laneId, batchId)
+        )
+          return {
+            stopped: false,
+            message: "本次作业已结束，未停止其他任务。",
+          };
+        lanePreparations.get(laneId)?.abort();
+        await laneRuntime!.stop(laneId);
+        const job = laneJobs.get(laneId);
+        if (job) await Promise.allSettled([job]);
+        return {
+          stopped: true,
+          message: "本次作业停止已送达，请核对原执行记录。",
+        };
+      });
       handle("gp:agent-execution-review", (input) =>
         agentExecution!.review(input),
       );
@@ -3409,7 +4111,11 @@ if (ownsInstance)
                     );
                     const lane = lanes.lanes[index];
                     if (!lane) throw new Error("设备绑定已变化");
-                    return mumuResource(lane.managerPath, lane.instance);
+                    const deviceLane = freezeLaneDevice(lane, ["arknights"]);
+                    return mumuResource(
+                      deviceLane.managerPath,
+                      deviceLane.instance,
+                    );
                   }),
                   new AbortController().signal,
                 )
@@ -3639,6 +4345,97 @@ if (ownsInstance)
         localControl = await createLocalControlServer({
           profileDir: dataDir,
           handlers: {
+            ...createGameAutomationControl({
+              readLanes: async () => (await deviceLanes.read()).lanes,
+              findExecution: (id) =>
+                executions
+                  .snapshot(Number.MAX_SAFE_INTEGER)
+                  .find((item) => item.id === id),
+              service: (gameId) =>
+                gameId === "arknights"
+                  ? arknightsAutomation!
+                  : onmyojiAutomation!,
+              busy: () =>
+                automaticReserved ||
+                configuring ||
+                quitting ||
+                startupInspectionRunning,
+              launch: async (lane, gameId, batchId) => {
+                const { job } = await launchLane(
+                  lane,
+                  batchId,
+                  false,
+                  undefined,
+                  undefined,
+                  gameId,
+                );
+                void job.catch((error) =>
+                  console.error("App兼容入口执行结束", error),
+                );
+              },
+            }),
+            "arknights-run-status": (input) => {
+              const record = executions.get(
+                validateRequestId(`${input.batchId}:${input.laneId}`),
+              );
+              if (!record.snapshot.arknightsPlan || record.snapshot.onmyojiPlan)
+                throw Error("请求不属于独立方舟任务");
+              return {
+                batchId: record.batchId,
+                laneId: record.laneId,
+                status: record.status,
+                message: record.message,
+              };
+            },
+            "arknights-automation": () => arknightsAutomation!.state(),
+            "arknights-tick": async () => {
+              if (
+                automaticReserved ||
+                executions.active ||
+                laneRuntime?.active ||
+                configuring
+              )
+                return {
+                  batches: [],
+                  message: "已有任务执行中，保留内部计划等待下次检查",
+                };
+              return { batches: await arknightsAutomation!.tick(new Date()) };
+            },
+            "arknights-run-job": (input) => {
+              if (automaticReserved || configuring)
+                throw Error("自动计划或设置操作正在进行");
+              return arknightsAutomation!.runNow(
+                input as unknown as import("../../../packages/protocol/arknights-automation").RunArknightsJobInput,
+              );
+            },
+            "arknights-run-channel": async (input) => {
+              if (automaticReserved || configuring)
+                throw Error("自动计划或设置操作正在进行");
+              const lane = (await deviceLanes.read()).lanes.find(
+                (item) => item.id === input.laneId,
+              );
+              if (!lane?.enabled || !lane.arknights.enabled)
+                throw Error("方舟账号渠道未启用或不存在");
+              const batchId = validateRequestId(input.requestId);
+              validateRequestId(`${batchId}:${lane.id}`);
+              const existing = executions
+                .snapshot(Number.MAX_SAFE_INTEGER)
+                .find((item) => item.id === `${batchId}:${lane.id}`);
+              if (existing) return { batchId, status: existing.status };
+              const { job } = await launchLane(
+                lane,
+                batchId,
+                false,
+                undefined,
+                undefined,
+                "arknights",
+                { laneId: lane.id, gameId: "arknights" },
+              );
+              void job.catch((error) =>
+                console.error("方舟兼容入口执行结束", error),
+              );
+              return { batchId };
+            },
             status: async () => {
               const chatState = await chat!.snapshot();
               return {
@@ -3654,6 +4451,11 @@ if (ownsInstance)
                   laneId: r.laneId,
                   startedAt: r.startedAt,
                   finishedAt: r.finishedAt,
+                  // 处置状态必须一起给出去：监督层要据此区分"未处置的未确认"与
+                  // "已经核对并写下依据的未确认"。少了它，已处置的记录会被反复当成待核对。
+                  resolution: r.resolution
+                    ? { action: r.resolution.action, at: r.resolution.at }
+                    : null,
                 })),
                 planner: { status: planner.snapshot().status },
               };
@@ -3678,6 +4480,37 @@ if (ownsInstance)
               chatCommands!.confirm(
                 input as unknown as import("../../../packages/protocol/chat-commands").ChatCommandConfirmation,
               ),
+            /**
+             * 显式处置一条未终态记录（与界面的 `gp:execution-resolve` 共用同一条路径）。
+             *
+             * 为什么需要它：准入的第二道闸门只要该设备存在未处置记录就阻止任何新准入，
+             * 与游戏无关；所以监督层必须能**在核对之后**把结论明确的记录处置掉，
+             * 否则"一个游戏失败拖累另一个"只能靠重启 App 开调试端口走 CDP。
+             *
+             * 边界：必须写清依据（note ≥ 4 字）；只处置未终态记录，已终态或已处置的一律拒绝
+             * （不删除、不改写历史）；`unknown` **允许**处置——因为这是"人/agent 已经现场核对过"
+             * 的显式动作，与自动策略（`planDisposition` 里禁止自动处置 unknown）是两回事。
+             */
+            "resolve-execution": async (input) => {
+              const requestId = validateRequestId(input.requestId);
+              if (!requestId) throw new Error("请提供执行请求编号");
+              const note = String(input.note ?? "").trim();
+              if (note.length < 4) throw new Error("请填写处置说明");
+              const record = executions.get(requestId);
+              if (record.resolution) throw new Error("该请求已经处置过");
+              if (record.status === "succeeded")
+                throw new Error("该请求已成功完成，无需处置");
+              // 真正还在跑的请求必须先停：处置一条活着的记录只会把状态搞乱。
+              // （进程已经不存在的遗留 `running` 记录是允许处置的，2026-10-15 就有一条。）
+              if (
+                record.status === "running" &&
+                record.laneId &&
+                record.batchId &&
+                laneRuntime?.isRunningBatch(record.laneId, record.batchId)
+              )
+                throw new Error("该请求正在运行，请先停止再处置");
+              return recovery.resolve(requestId, note);
+            },
             stop: async (input) => {
               await validateChatSession(input.sessionId as string);
               if (input.requestId) {
@@ -3733,6 +4566,16 @@ if (ownsInstance)
               allowed: false,
               reason: "设备账号配置已变化，停止自动重试",
             };
+          const targetInstances = new Set(
+            scheduledGames(current, false, occurrence.slot).map(
+              (gameId) => freezeLaneDevice(current, [gameId]).instance,
+            ),
+          );
+          if (targetInstances.size > 1)
+            return {
+              allowed: false,
+              reason: "本时段游戏指向不同 MuMu 实例，请分别核对原请求后继续",
+            };
           const frozen = freezeLaneExecution(
             current,
             await arknights.read(),
@@ -3749,22 +4592,38 @@ if (ownsInstance)
             context.attempts,
           );
         };
-        const assertScheduledAgentClear = (
+        const assertScheduledHistoryClear = async (
           current: DeviceLane,
           occurrence: import("./scheduler").DailyOccurrence,
         ) => {
           executions.assertHealthy();
           runLedger.assertHealthy();
-          assertAgentScheduleClear(
+          await runLedger.flush();
+          const profiles = await arknights.read();
+          const now = new Date();
+          for (const gameId of scheduledGames(
             current,
-            executions.snapshot(Number.MAX_SAFE_INTEGER),
-            new Date(),
-            occurrence.slot === "secondary" ? occurrence.dueAt : undefined,
-            {
-              tasks: runLedger.snapshot(Number.MAX_SAFE_INTEGER),
-              startupFacts: readStartupFacts(),
-            },
-          );
+            false,
+            occurrence.slot,
+          )) {
+            const frozen = freezeLaneExecutionForGame(
+              current,
+              profiles,
+              gameId,
+              false,
+              now,
+              occurrence.slot,
+            );
+            if (!frozen) continue;
+            assertDailyHistoryClear(
+              frozen,
+              executions.snapshot(Number.MAX_SAFE_INTEGER),
+              runLedger.snapshot(Number.MAX_SAFE_INTEGER),
+              now,
+              readStartupFacts(),
+              occurrence,
+            );
+          }
         };
         const ensureLaneSchedulers = (lane: DeviceLane) => {
           schedulerTargets.set(lane.id, lane);
@@ -3772,9 +4631,7 @@ if (ownsInstance)
             laneDailySchedulers.set(
               lane.id,
               new DailyScheduler(
-                new ScheduleStore(
-                  join(dataDir, "lanes", lane.id, "daily-scheduler.json"),
-                ),
+                createChannelDailyScheduleStore(dataDir, lane),
                 (date) =>
                   schedulerTargets.get(lane.id)?.onmyoji.enabled
                     ? gameDay(date)
@@ -3789,15 +4646,25 @@ if (ownsInstance)
                     !current.arknights.enabled
                   )
                     return "skipped";
-                  assertScheduledAgentClear(current, occurrence);
-                  const { job } = await launchLane(
-                    current,
-                    randomUUID(),
-                    false,
-                    automaticCycle?.signal,
-                    occurrence,
-                  );
-                  await job;
+                  await assertScheduledHistoryClear(current, occurrence);
+                  // P1a'：一个槽位在这个时段要跑的每个游戏**各自一个请求**，按执行顺序串行发起。
+                  // 设备层的顺序不变式原样保留：同一台设备一次只跑一个游戏、上一个引擎必须干净
+                  // 释放（见 lane-plan.ts 顶部注释与 tests/lane-plan.test.ts）。
+                  // 一个游戏失败就停（不换引擎），但下一个游戏的**当日机会不会被消耗**：
+                  // 它自己的准入只看与它相关的计划与证据。
+                  const games = scheduledGames(current, false, occurrence.slot);
+                  if (!games.length) return "skipped";
+                  for (const game of games) {
+                    const { job } = await launchLane(
+                      current,
+                      `${randomUUID()}:${game}`,
+                      false,
+                      automaticCycle?.signal,
+                      occurrence,
+                      game,
+                    );
+                    await job;
+                  }
                   return "succeeded";
                 },
                 // 失败后允许有界重试，但只在这条槽位今天还没跑成过任何游戏步骤时。
@@ -3812,7 +4679,7 @@ if (ownsInstance)
                     (occurrence.slot !== "secondary" ||
                       current.arknights.enabled)
                   )
-                    assertScheduledAgentClear(current, occurrence);
+                    await assertScheduledHistoryClear(current, occurrence);
                 },
               ),
             );
@@ -3855,8 +4722,6 @@ if (ownsInstance)
         let lastSchedulerError = "";
         // 已就“寄养维护被暂停”通知过的槽位；闸门解除后移除，避免每 15 秒重复弹窗。
         const maintenancePausedNotified = new Set<string>();
-        // 已就“今天主计划尝试过但没完成”通知过的 `槽位|游戏日`；按天自然失效。
-        const dailyMissedNotified = new Set<string>();
         const tick = async (trigger = "timer") => {
           if (
             quitting ||
@@ -3865,8 +4730,7 @@ if (ownsInstance)
             finishing ||
             configuring ||
             history.active ||
-            laneRuntime?.active ||
-            executions.active ||
+            !!context ||
             automaticReserved ||
             startupInspectionRunning
           )
@@ -3882,71 +4746,49 @@ if (ownsInstance)
             );
             automaticCycle.signal.throwIfAborted();
             for (const lane of lanes) automaticLaneIds.add(lane.id);
+            // Admission is ordered across games so a shared device is visible to the next scheduler.
+            // tick returns after admission, leaving workers on distinct devices concurrent.
+            await arknightsAutomation!.tick(new Date());
+            await onmyojiAutomation!.tick(new Date());
             for (const lane of lanes) ensureLaneSchedulers(lane);
             const results = await Promise.allSettled(
-              lanes.map(async (lane) => {
-                const dailyScheduler = laneDailySchedulers.get(lane.id)!;
-                const dailyScope = dailyLaneScope(lane);
-                const now = new Date();
-                await dailyScheduler.tick(
-                  now,
-                  { ...config, scope: dailyScope },
-                  laneRuntime!.isRunning(lane.id),
-                  trigger,
-                );
-                // 分别读取两轮证据；不以晚轮或全局状态覆盖早轮，也不把中断 running 隐藏。
-                const daily = await dailyScheduler.dailyState(
-                  new Date(),
-                  dailyScope,
-                  config,
-                );
-                for (const key of dailyMissedNotified)
-                  if (!key.endsWith(`|${daily.day}`))
-                    dailyMissedNotified.delete(key);
-                for (const notice of dailyMissedNotices(
-                  lane.name,
-                  daily,
-                  config,
-                  laneRuntime!.isRunning(lane.id),
-                )) {
-                  const noticeKey = `${lane.id}|${notice.slot}|${notice.day}`;
-                  if (!dailyMissedNotified.has(noticeKey)) {
-                    dailyMissedNotified.add(noticeKey);
-                    await report(new Error(notice.message));
-                  }
-                }
-                if (
-                  !automaticCycle?.signal.aborted &&
-                  !cancelledLaneCycles.has(lane.id) &&
-                  maintenanceLanes([lane]).length
-                ) {
-                  const fosterScheduler = laneFosterSchedulers.get(lane.id)!;
-                  const fosterScope = dailyLaneScope(lane);
-                  await fosterScheduler.tick(
-                    new Date(),
-                    config.fosterScheduleEnabled,
-                    laneRuntime!.isRunning(lane.id),
-                    fosterScope,
-                  );
-                  // 闸门命中时不再静默返回：否则用户只看到"每 6 小时检查寄养"仍开着，
-                  // 却永远不再运行，也没有任何提示。
-                  const gate = await fosterScheduler.gateState(fosterScope);
-                  if (gate.blocked && config.fosterScheduleEnabled) {
-                    if (!maintenancePausedNotified.has(lane.id)) {
-                      maintenancePausedNotified.add(lane.id);
-                      await report(
-                        new Error(
-                          `${lane.name} 的寄养维护已暂停：${
-                            gate.blockedAt ?? "上次运行"
-                          } 的结果未确认。请在任务详情核对并处置原记录，或完成新的现场观测，再重新启用寄养维护进行检查。`,
-                        ),
-                      );
+              lanes
+                .filter(
+                  (lane) => lane.onmyoji.enabled && !lane.arknights.enabled,
+                )
+                .map(async (lane) => {
+                  if (
+                    !automaticCycle?.signal.aborted &&
+                    !cancelledLaneCycles.has(lane.id) &&
+                    maintenanceLanes([lane]).length
+                  ) {
+                    const fosterScheduler = laneFosterSchedulers.get(lane.id)!;
+                    const fosterScope = dailyLaneScope(lane);
+                    await fosterScheduler.tick(
+                      new Date(),
+                      config.fosterScheduleEnabled,
+                      laneRuntime!.isRunning(lane.id),
+                      fosterScope,
+                    );
+                    // 闸门命中时不再静默返回：否则用户只看到"每 6 小时检查寄养"仍开着，
+                    // 却永远不再运行，也没有任何提示。
+                    const gate = await fosterScheduler.gateState(fosterScope);
+                    if (gate.blocked && config.fosterScheduleEnabled) {
+                      if (!maintenancePausedNotified.has(lane.id)) {
+                        maintenancePausedNotified.add(lane.id);
+                        await report(
+                          new Error(
+                            `${lane.name} 的寄养维护已暂停：${
+                              gate.blockedAt ?? "上次运行"
+                            } 的结果未确认。请在任务详情核对并处置原记录，或完成新的现场观测，再重新启用寄养维护进行检查。`,
+                          ),
+                        );
+                      }
+                    } else if (maintenancePausedNotified.delete(lane.id)) {
+                      // 闸门已解除，下次再暂停时重新提示一次。
                     }
-                  } else if (maintenancePausedNotified.delete(lane.id)) {
-                    // 闸门已解除，下次再暂停时重新提示一次。
                   }
-                }
-              }),
+                }),
             );
             for (const result of results)
               if (result.status === "rejected") await report(result.reason);
@@ -4033,7 +4875,8 @@ if (ownsInstance)
         let onmyojiStopped;
         const onmyojiTerminal = new Promise(resolve => { onmyojiStopped = resolve; });
         const off = api.onEvent(event => { events.push(event); if (event.status === 'cancelled') onmyojiStopped(); });
-        const onmyojiDaily = ['login','check-in','mail','daily-gift','guild-quest','foster','guild-kirin','realm-raid','hana-claim'];
+        // 2026-10-25 定稿：每日 = 必做 6 项 + 阴阳寮麒麟（集体任务/胧车/寄养不纳入日常）。
+        const onmyojiDaily = ['login','check-in','mail','daily-gift','guild-kirin','realm-raid','hana-claim'];
         const requestId = crypto.randomUUID();
         await api.start({ gameId: 'onmyoji', skillIds: onmyojiDaily, mode: 'rehearsal' }, requestId);
         let overlapRejected = false;
@@ -4056,6 +4899,27 @@ if (ownsInstance)
         const arkDaily = ['login','fight','infrastructure','friends','award'];
         if (!arkDaily.every(id => arkGame.skills.some(skill => skill.id === id && skill.ready))) throw Error('Validated Arknights daily skills unavailable');
         const arkConfig = await api.arknights();
+        await api.saveArknights({...arkConfig,profiles:arkConfig.profiles.map(profile=>({...profile,stage:profile.stage||'LS-6'}))});
+        const internalPlans = await api.arknightsAutomation();
+        if (internalPlans.version !== 1 || internalPlans.enabled || !internalPlans.jobs.length) throw Error('Internal automation inert defaults missing');
+        const editedPlans = {...internalPlans, jobs:internalPlans.jobs.map((job,index)=>index===0?{...job,time:'11:23',weekdays:[1,3],skillIds:['login','fight']}:job)};
+        await api.saveArknightsAutomation(editedPlans);
+        const readPlans=await api.arknightsAutomation();
+        if (JSON.stringify(readPlans)!==JSON.stringify(editedPlans)) throw Error('Internal automation round-trip mismatch');
+        let invalidPlanRejected=false;
+        try { await api.saveArknightsAutomation({...editedPlans,jobs:editedPlans.jobs.map((job,index)=>index===0?{...job,weekdays:[9]}:job)}); } catch {invalidPlanRejected=true;}
+        if(!invalidPlanRejected || JSON.stringify(await api.arknightsAutomation())!==JSON.stringify(editedPlans)) throw Error('Invalid automation changed saved plans');
+        await api.saveArknightsAutomation(internalPlans);
+        const yysPlans=await api.onmyojiAutomation();
+        if(yysPlans.version!==1 || yysPlans.enabled || !yysPlans.jobs.length) throw Error('Onmyoji inert plans missing');
+        const editedYys={...yysPlans,jobs:yysPlans.jobs.map((job,index)=>index===0?{...job,time:'10:45',weekdays:[1,2,3,4],skillIds:['login','mail','hana-claim']}:job)};
+        await api.saveOnmyojiAutomation(editedYys);
+        if(JSON.stringify(await api.onmyojiAutomation())!==JSON.stringify(editedYys)) throw Error('Onmyoji schedule roundtrip failed');
+        let badYysRejected=false;
+        try { await api.saveOnmyojiAutomation({...editedYys,jobs:editedYys.jobs.map((job,index)=>index===0?{...job,skillIds:['fight']}:job)}); } catch {badYysRejected=true;}
+        if(!badYysRejected || JSON.stringify(await api.onmyojiAutomation())!==JSON.stringify(editedYys)) throw Error('Cross-game schedule changed saved Onmyoji plans');
+        await api.saveOnmyojiAutomation(yysPlans);
+        await api.saveArknights(arkConfig);
         const activeArk = arkConfig.profiles.find(profile => profile.id === arkConfig.activeProfileId);
         if (!activeArk) throw Error('Arknights active profile missing');
         await api.saveArknights({ ...arkConfig, profiles: arkConfig.profiles.map(profile => profile.id === activeArk.id ? { ...profile, stage: '1-7' } : profile) });
@@ -4137,34 +5001,59 @@ if (ownsInstance)
           );
           result.workspaceUi = await window!.webContents
             .executeJavaScript(`(async () => {
-            const wait = () => new Promise(resolve => setTimeout(resolve, 200));
-            const click = async (text) => {
-              const button = [...document.querySelectorAll('button')].find(item => item.textContent.trim() === text && item.getClientRects().length);
-              if (!button || button.disabled) throw Error('Missing or disabled UI action: ' + text);
-              button.click(); await wait();
+            const until = async (read, label) => {
+              for (let attempt = 0; attempt < 100; attempt++) {
+                const value = await read();
+                if (value) return value;
+                await new Promise(resolve => setTimeout(resolve, 50));
+              }
+              throw Error('Workspace UI timeout: ' + label);
             };
+            const visible = item => item && item.getClientRects().length > 0;
+            const workspace = () => [...document.querySelectorAll('.game-workspace')].find(visible);
+            const click = async (text) => {
+              const button = await until(() => [...(workspace()?.querySelectorAll('button') || [])].find(item => visible(item) && !item.disabled && item.textContent.trim() === text), text);
+              button.click();
+            };
+            const tab = async (text) => {
+              await click(text);
+              await until(() => [...(workspace()?.querySelectorAll('.workspace-tabs button') || [])].find(item => item.textContent.trim() === text && item.getAttribute('aria-current') === 'page'), text + ' tab');
+            };
+            const stageField = () => [...(workspace()?.querySelectorAll('.game-settings-form label') || [])].find(item => item.textContent.includes('代理作战关卡'))?.querySelector('input');
             const tools = document.querySelector('.sidebar-tools');
             if (tools) tools.open = true;
-            const ark = [...document.querySelectorAll('.sidebar-tools button')].find(item => item.textContent.includes('明日方舟'));
-            if (!ark || ark.disabled) throw Error('Game navigation unavailable');
-            ark.click(); await wait();
-            const skill = document.querySelector('.skill-card');
-            skill.click(); await wait();
-            await click('游戏设置');
+            const ark = await until(() => [...document.querySelectorAll('.sidebar-tools button')].find(item => item.textContent.includes('明日方舟') && !item.disabled), 'Arknights navigation');
+            ark.click();
+            const account = await until(() => workspace()?.querySelector('select[aria-label="工作区账号"]'), 'lazy account workspace');
+            const configured = await window.gamepilot.deviceLanes();
             const saved = await window.gamepilot.arknights();
+            const target = configured.lanes.find(item => item.enabled && item.arknights.enabled && !item.onmyoji.enabled && saved.profiles.some(profile => profile.id === item.arknights.profileId));
+            if (!target) throw Error('Single-game Arknights account missing');
+            Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(account, target.id);
+            account.dispatchEvent(new Event('change', { bubbles: true }));
+            await until(() => workspace()?.querySelector('select[aria-label="工作区账号"]')?.value === target.id && workspace()?.querySelector('[aria-label="所选账号任务"] h2')?.textContent.includes(target.name), 'selected account binding');
+            const advanced = await until(() => [...workspace().querySelectorAll('details')].find(item => item.querySelector('summary')?.textContent.trim() === '高级设备工具' && visible(item)), 'advanced device disclosure');
+            if (!advanced.open) advanced.querySelector('summary').click();
+            const skill = await until(() => [...workspace().querySelectorAll('.skill-card')].find(item => visible(item) && !item.disabled && item.getAttribute('aria-pressed') === 'false'), 'lazy skill cards');
+            skill.click();
+            await until(() => skill.getAttribute('aria-pressed') === 'true', 'selected skill');
+            await tab('游戏设置');
             try {
-              const field = [...document.querySelectorAll('.game-settings-form label')].find(item => item.textContent.includes('代理作战关卡'))?.querySelector('input');
-              if (!field || field.disabled) throw Error('Stage field unavailable');
+              const field = await until(() => { const input = stageField(); return visible(input) && !input.disabled && input; }, 'bound profile stage field');
               Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, 'LS-6');
-              field.dispatchEvent(new Event('input', { bubbles: true })); await wait();
-              await click('执行记录'); await click('游戏设置');
-              if (field.value !== 'LS-6') throw Error('Unsaved settings lost across tabs');
+              field.dispatchEvent(new Event('input', { bubbles: true }));
+              await new Promise(resolve => requestAnimationFrame(resolve));
+              await tab('执行记录'); await tab('游戏设置');
+              const retained = await until(() => { const input = stageField(); return visible(input) && !input.disabled && input; }, 'retained settings form');
+              if (retained !== field || retained.value !== 'LS-6') throw Error('Unsaved settings lost across tabs');
               await click('保存明日方舟设置');
-              const current = await window.gamepilot.arknights();
-              if (current.profiles.find(item => item.id === current.activeProfileId)?.stage !== 'LS-6') throw Error('UI settings save failed');
-              await click('适配进展'); await click('任务');
-              if (document.querySelector('.skill-card').getAttribute('aria-pressed') !== 'true') throw Error('Task selection lost across tabs');
-              return { settingsSaved: true, draftRetained: true, taskSelectionRetained: true };
+              const current = await until(async () => { const value = await window.gamepilot.arknights(); return value.profiles.find(item => item.id === target.arknights.profileId)?.stage === 'LS-6' && value; }, 'bound profile persisted');
+              if (current.activeProfileId !== saved.activeProfileId) throw Error('Bound profile save changed global active account');
+              if (JSON.stringify(current.profiles.filter(item => item.id !== target.arknights.profileId)) !== JSON.stringify(saved.profiles.filter(item => item.id !== target.arknights.profileId))) throw Error('Bound profile save changed another account');
+              await tab('适配进展'); await tab('任务');
+              if (!visible(skill) || skill.getAttribute('aria-pressed') !== 'true') throw Error('Task selection lost across tabs');
+              if (workspace().querySelector('select[aria-label="工作区账号"]').value !== target.id) throw Error('Workspace account changed across tabs');
+              return { settingsSaved: true, draftRetained: true, taskSelectionRetained: true, channelId: target.id, profileId: target.arknights.profileId, activeProfilePreserved: true, otherProfilesPreserved: true, lazyToolsMounted: true };
             } finally { await window.gamepilot.saveArknights(saved); }
           })()`);
           await writeFile(
@@ -4177,10 +5066,10 @@ if (ownsInstance)
           );
           const devicesReady = await window!.webContents
             .executeJavaScript(`(() => {
-            const button = [...document.querySelectorAll('.sidebar-tools button')].find(item => item.textContent.trim() === '设备与账号');
+            const button = [...document.querySelectorAll('.sidebar button')].find(item => item.textContent.trim() === '设备与账号');
             if (!button) throw new Error('Devices navigation missing');
             button.click();
-            return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(document.body.innerText.includes('双账号流水线')))));
+            return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(document.body.innerText.includes('账号渠道配置')))));
           })()`);
           if (!devicesReady) throw new Error("Device lane UI missing");
           await writeFile(
@@ -4209,6 +5098,7 @@ if (ownsInstance)
 
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
+  lanePreview?.invalidateAll();
   modelOperation?.abort();
   for (const controller of goalNotifications) controller.abort();
   clearInterval(goalTimer);
@@ -4221,6 +5111,8 @@ app.on("before-quit", (event) => {
     quitting = true;
     void Promise.allSettled([
       history.flush(),
+      arknightsAutomation?.stop(),
+      onmyojiAutomation?.stop(),
       runLedger?.flush(),
       executions?.flush(),
       planner.close().then(() => chat?.close()),

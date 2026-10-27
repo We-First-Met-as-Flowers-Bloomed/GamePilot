@@ -429,7 +429,11 @@ export class IntervalScheduler {
       nextRunAt <= observedAt ||
       nextRunAt - observedAt > this.intervalMs + 5_000
     )
-      throw new Error("周期任务结果时间无效");
+      // 报错必须带上实际数值：2026-10-15 08:29 实机出现过“落账值全部通过校验、
+      // 但事件传进来的值不同”的情况，原文案无法定位，只能靠复现。
+      throw new Error(
+        `周期任务结果时间无效（观察 ${String(result.observedAt ?? "无")}，下次 ${String(result.nextRunAt ?? "无")}，核对时刻 ${now.toISOString()}，间隔上限 ${this.intervalMs} 毫秒）`,
+      );
     await this.update(async (previous) => {
       const sameScope = previous.scope === scope;
       if (

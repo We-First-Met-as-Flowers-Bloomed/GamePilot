@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, open, unlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { validateRequestId } from "../../../packages/protocol/execution";
-import { validateTaskRecord } from "../../../packages/protocol/task-record";
+import { readTaskRecord } from "../../../packages/protocol/task-record";
 import type {
   FailureEvidenceSummary,
   FailureImageView,
@@ -32,7 +32,7 @@ export class FailureEvidenceService {
     const profile = request.snapshot.profile as { id?: string } | undefined;
     return this.ledger
       .forExecution(request.id)
-      .map(validateTaskRecord)
+      .map(readTaskRecord)
       .filter(
         (r) =>
           r.executionId === request.id &&

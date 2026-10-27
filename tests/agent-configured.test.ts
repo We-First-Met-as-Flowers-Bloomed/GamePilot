@@ -16,6 +16,8 @@ import { createAgentTools } from "../packages/agent/tools";
 import { PlannerSession } from "../packages/agent/planner";
 import { presentAgentParameters } from "../games/agent-presentation";
 import { taskRecordKey } from "../packages/protocol/task-record";
+import { agentToolSpecs } from "../packages/agent/tool-specs";
+import { plannerOnmyojiIdentity } from "../packages/protocol/onmyoji-identity";
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -40,6 +42,29 @@ async function setup() {
   await writeFile(join(dir, "arknights.json"), JSON.stringify(raw.profiles));
   return { dir, raw };
 }
+
+it.each([27, 64])("keeps %i channel aliases valid and compiles the complete batch", async (count) => {
+  const { dir, raw } = await setup();
+  const source = raw.lanes!.lanes[0];
+  raw.lanes!.lanes = Array.from({ length: count }, (_, index) => ({ ...structuredClone(source), id: `private-${index}`, name: `账号${index + 1}`, instance: index }));
+  await writeFile(join(dir, "device-lanes.json"), JSON.stringify(raw.lanes));
+  const configured = await readConfiguredSnapshot(dir);
+  const tools = createAgentTools(configured.snapshot);
+  const environment = tools.call("get_environment");
+  expect(environment.lanes).toHaveLength(count);
+  expect(environment.lanes[26].id).toBe("lane-aa");
+  if (count === 64) expect(environment.lanes[63].id).toBe("lane-bl");
+  const catalog = tools.call("list_capabilities");
+  const spec: any = agentToolSpecs(catalog).find((tool) => tool.name === "compile_plan");
+  expect(spec.inputSchema.properties.lanes.maxItems).toBe(64);
+  const draft = tools.call("compile_plan", {
+    catalogRevision: catalog.revision, environmentRevision: environment.revision,
+    at: "2026-10-23T04:00:00.000Z",
+    lanes: environment.lanes.map((lane: any) => ({ laneId: lane.id, games: [{ gameId: "arknights", skillIds: ["login"] }] })),
+  });
+  expect(draft.status).toBe("valid");
+  expect(draft.lanes).toHaveLength(count);
+});
 it("projects private config before any tool/model access and preserves saved tasks", async () => {
   const { dir } = await setup();
   const before = await readFile(join(dir, "arknights.json"), "utf8");
@@ -86,6 +111,23 @@ it("projects private config before any tool/model access and preserves saved tas
     "arknights.json",
     "device-lanes.json",
   ]);
+});
+it.each([false, true])("retains explicit Onmyoji identity in configured and recorded host binding snapshots: history=%s", async (history) => {
+  const { dir, raw } = await setup();
+  const identity = { roleId: "role-own-123", serverName: "测试区" };
+  raw.lanes!.lanes[0].onmyoji.identity = identity;
+  await writeFile(join(dir, "device-lanes.json"), JSON.stringify(raw.lanes));
+  if (history) {
+    await mkdir(join(dir, "execution-requests"));
+    await mkdir(join(dir, "task-runs"));
+  }
+  const { snapshot } = await readConfiguredSnapshot(dir, { history });
+  expect(snapshot.lanes!.lanes[0].onmyoji.identity).toEqual(plannerOnmyojiIdentity(identity));
+  expect(JSON.stringify(snapshot)).not.toContain(identity.roleId);
+  expect(JSON.stringify(snapshot)).not.toContain(identity.serverName);
+  expect(snapshot.source).toBe(history ? "recorded" : "configured");
+  const environment = createAgentTools(snapshot).call("get_environment");
+  expect(environment.lanes[0].games.onmyoji.identity).toBe("not-inspected");
 });
 it("keeps private-only configuration changes in the host fingerprint", async () => {
   const { dir, raw } = await setup();

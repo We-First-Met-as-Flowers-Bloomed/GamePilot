@@ -31,8 +31,8 @@ const task = (homeObservedAt: string): TaskRecord => ({
           taskId: 1,
           observedAt: "2026-09-30T12:00:01Z",
           login: {
-            expectedUid: "864209759",
-            observedUid: "864209759",
+            expectedUid: "123456789",
+            observedUid: "123456789",
             observedAt: "2026-09-30T12:00:02Z",
             method: "profile",
             homeObservedAt,
@@ -44,13 +44,13 @@ const task = (homeObservedAt: string): TaskRecord => ({
   ],
 });
 it("requires both identity and final home evidence to belong to the login step", () => {
-  expect(historyNativeMatches(task("2026-09-30T12:00:04Z"), "864209759")).toBe(
+  expect(historyNativeMatches(task("2026-09-30T12:00:04Z"), "123456789")).toBe(
     true,
   );
   for (const at of ["2026-09-30T12:00:06Z", "2026-09-30T12:00:01Z", "bad"]) {
-    expect(historyNativeMatches(task(at), "864209759")).toBe(false);
+    expect(historyNativeMatches(task(at), "123456789")).toBe(false);
   }
   const incomplete = task("2026-09-30T12:00:04Z");
   delete incomplete.steps[0]!.result!.arknights!.login!.homeObservedAt;
-  expect(historyNativeMatches(incomplete, "864209759")).toBe(false);
+  expect(historyNativeMatches(incomplete, "123456789")).toBe(false);
 });

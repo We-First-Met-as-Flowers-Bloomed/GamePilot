@@ -98,8 +98,8 @@ export async function runPlannerUiSmoke(
     const pause = ms => new Promise(r => setTimeout(r, ms));
     const wait = async (check, timeout = 15000) => { const start = Date.now(); while (!await check()) { if (Date.now() - start > timeout) throw Error('UI condition timed out'); await pause(100); } };
     const button = text => [...document.querySelectorAll('button')].find(b => b.textContent.trim() === text);
-    await wait(() => button('每日计划与开关'));
-    button('每日计划与开关').click();
+    await wait(() => button('每日任务'));
+    button('每日任务').click();
     await wait(() => button('双账号方舟日常') && !button('双账号方舟日常').disabled);
     const api = window.gamepilot;
     const before = JSON.stringify([await api.deviceLanes(), await api.arknights()]);
@@ -125,7 +125,7 @@ export async function runPlannerUiSmoke(
     button('发送需求').click();
     await wait(async () => (await api.plannerSnapshot()).status === 'running');
     const requestId = (await api.plannerSnapshot()).requestId;
-    button('设备与账号').click(); await pause(250); button('每日计划与开关').click(); await pause(1200);
+    button('设备与账号').click(); await pause(250); button('每日任务').click(); await pause(1200);
     document.querySelector('#agent-planner').open = true;
     await wait(() => button('取消规划'));
     if ((await api.plannerSnapshot()).requestId !== requestId) throw Error('navigation replaced planning job');
@@ -180,11 +180,15 @@ export async function runPlannerUiSmoke(
   await new Promise((resolve) => setTimeout(resolve, 300));
   const narrow = await window.webContents.executeJavaScript(`(() => {
     document.querySelector(${JSON.stringify(resultSelector)}).scrollIntoView({block:'start'});
-    return { overflow: document.documentElement.scrollWidth > innerWidth, columns: getComputedStyle(document.querySelector(${JSON.stringify(recordedMode ? ".agent-records" : ".agent-draft-lanes")})).gridTemplateColumns.split(' ').length };
+    return { overflow: document.documentElement.scrollWidth > innerWidth, columns: getComputedStyle(document.querySelector(${JSON.stringify(recordedMode ? ".agent-records" : ".agent-draft-lanes")})).gridTemplateColumns.split(' ').length, innerWidth, scrollWidth: document.documentElement.scrollWidth, grid: getComputedStyle(document.querySelector(${JSON.stringify(recordedMode ? ".agent-records" : ".agent-draft-lanes")})).gridTemplateColumns, media: matchMedia('(max-width: 1150px)').matches, overflows: [...document.querySelectorAll('body *')].filter(el=>el.getClientRects().length&&el.getBoundingClientRect().right>innerWidth+1).slice(0,15).map(el=>({tag:el.tagName,classes:el.className,right:el.getBoundingClientRect().right,width:el.getBoundingClientRect().width})) };
   })()`);
+  await writeFile(
+    join(evidence, "narrow-layout.json"),
+    JSON.stringify(narrow, null, 2),
+  );
+  await capture("draft-narrow.png");
   if (narrow.overflow || narrow.columns !== 1)
     throw new Error("Narrow layout failed");
-  await capture("draft-narrow.png");
   const edits = await window.webContents.executeJavaScript(`(async () => {
     const source = document.querySelector('#agent-source');
     const original = source.value;

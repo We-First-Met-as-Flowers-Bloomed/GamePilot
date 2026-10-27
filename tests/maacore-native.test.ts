@@ -3,10 +3,11 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, it } from "vitest";
 import { taskFor, defaultArknightsConfig } from "../games/arknights/config";
+import engineContract from "../games/arknights/engine-contract.json";
 const exe = resolve("dist/maa-bridge/GamePilot.MaaBridge.exe");
-const core = resolve("dist/resources/maa-v6.17.5");
+const core = resolve(`dist/resources/maa-${engineContract.version}`);
 it.skipIf(!existsSync(exe) || !existsSync(resolve(core, "MaaCore.dll")))(
-  "accepts all six daily task mappings without connecting or starting a game",
+  "accepts all six daily mappings and room-free preset rotation without starting a game",
   () => {
     const skills = [
       "login",
@@ -33,7 +34,15 @@ it.skipIf(!existsSync(exe) || !existsSync(resolve(core, "MaaCore.dll")))(
           creditShopping: true,
         }),
       })),
-      { id: 8, method: "close" },
+      {
+        id: 8,
+        method: "validateTask",
+        ...taskFor("infrastructure", {
+          ...defaultArknightsConfig,
+          taskOptions: { infrastructure: { drones: "_NotUse" } },
+        }),
+      },
+      { id: 9, method: "close" },
     ];
     const result = spawnSync(exe, [], {
       input:
@@ -49,14 +58,14 @@ it.skipIf(!existsSync(exe) || !existsSync(resolve(core, "MaaCore.dll")))(
       .split(/\r?\n/)
       .map((line) => JSON.parse(line))
       .filter((value) => value.id);
-    expect(responses).toHaveLength(8);
+    expect(responses).toHaveLength(9);
     for (const response of responses)
       expect(response).toMatchObject({ ok: true });
   },
   70_000,
 );
 it.skipIf(!existsSync(exe) || !existsSync(resolve(core, "MaaCore.dll")))(
-  "rejects unsupported Award parameters before native validation or execution",
+  "validates supported Award flags and rejects unknown keys before any execution",
   () => {
     const requests = [
       {
@@ -75,7 +84,7 @@ it.skipIf(!existsSync(exe) || !existsSync(resolve(core, "MaaCore.dll")))(
         id: 3,
         method: "runTask",
         type: "Award",
-        params: { signinevent: true },
+        params: { invented: true },
       },
       {
         id: 4,
@@ -102,10 +111,11 @@ it.skipIf(!existsSync(exe) || !existsSync(resolve(core, "MaaCore.dll")))(
         params: {
           award: true,
           mail: true,
-          recruit: false,
-          orundum: false,
-          mining: false,
-          specialaccess: false,
+          recruit: true,
+          orundum: true,
+          mining: true,
+          specialaccess: true,
+          signinevent: true,
         },
       },
       { id: 8, method: "close" },
@@ -125,10 +135,9 @@ it.skipIf(!existsSync(exe) || !existsSync(resolve(core, "MaaCore.dll")))(
       .map((line) => JSON.parse(line));
     const response = (id: number) => responses.find((value) => value.id === id);
     expect(response(1)).toMatchObject({ ok: true });
-    for (const id of [2, 3, 4]) {
-      expect(response(id)).toMatchObject({ ok: false });
-      expect(response(id).error).toMatch(/signinevent.*v6\.17\.5/);
-    }
+    for (const id of [2, 4]) expect(response(id)).toMatchObject({ ok: true });
+    expect(response(3)).toMatchObject({ ok: false });
+    expect(response(3).error).toContain("invented");
     expect(response(5)).toMatchObject({ ok: false });
     expect(response(5).error).toContain("invented");
     expect(response(6)).toMatchObject({ ok: false });

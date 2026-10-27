@@ -9,7 +9,7 @@ import {
 import { dailySkills } from "../../../games/registry";
 import { completedContinuationRequestIds } from "../../../games/continuation-history";
 import { historyPlan } from "../../../games/agent-history";
-import { mumuResource } from "./execution-coordinator";
+import { requestMayAffectChannel } from "../../../packages/protocol/account-channel";
 
 function scheduleHistoryPlan(request: ExecutionRecord, tasks: TaskRecord[]) {
   const snapshot = request.snapshot;
@@ -49,7 +49,6 @@ export function assertAgentScheduleClear(
   periodStart?: Date,
   evidence?: { tasks: TaskRecord[]; startupFacts: StartupReconciliationFact[] },
 ) {
-  const resource = mumuResource(lane.managerPath, lane.instance);
   const covered = completedContinuationRequestIds(
     requests,
     evidence?.tasks ?? [],
@@ -57,20 +56,16 @@ export function assertAgentScheduleClear(
     now,
   );
   for (const request of requests) {
-    if (!request.snapshot.agent) continue;
-    if (
-      request.laneId !== lane.id &&
-      !request.resources.some((r) => r === "*" || r === resource)
-    )
-      continue;
+    if (!requestMayAffectChannel(request, lane)) continue;
     if (
       !request.resolution &&
       !covered.has(request.id) &&
       ["running", "unknown", "failed", "cancelled"].includes(request.status)
     )
       throw new Error(
-        `${lane.name} 的本次 AI 任务尚需核对，已阻止自动日常补跑；请在任务记录中处理。`,
+        `${lane.name} 的${request.snapshot.agent ? "本次 AI 任务" : "原执行请求"}尚需核对，已阻止自动日常补跑；请在任务记录中处理。`,
       );
+    if (!request.snapshot.agent) continue;
     // Completed descendants settle the parent uncertainty, not its business effects.
     // Keep every original plan in the overlap checks below.
     // Confirmed saved daily work wrote the ordinary per-slot completion receipt.

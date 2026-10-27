@@ -18,8 +18,10 @@ beforeAll(async () => {
     format: "cjs",
     metafile: true,
   });
+  // 锚定 packages/agent/snapshot.ts（重账本）；轻量协议解析器（如
+  // protocol/execution-snapshot.ts）允许进入 CLI 依赖图。
   expect(Object.keys(result.metafile!.inputs).join("\n")).not.toMatch(
-    /snapshot\.ts|packages\/runtime\/(?:worker|device|maa)\.|apps\/desktop\/main|maa-node|electron/,
+    /(?:^|\/)snapshot\.ts|packages\/runtime\/(?:worker|device|maa)\.|apps\/desktop\/main|maa-node|electron/,
   );
 });
 afterAll(async () => {

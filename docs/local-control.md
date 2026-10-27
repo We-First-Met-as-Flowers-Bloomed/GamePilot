@@ -64,7 +64,7 @@ MCP 客户端配置示例，使用实际项目绝对路径替换参数：
   "mcpServers": {
     "gamepilot": {
       "command": "node",
-      "args": ["<project-root>/scripts/agent/mcp.mjs"]
+      "args": ["D:/Projects/GamePilot/scripts/agent/mcp.mjs"]
     }
   }
 }

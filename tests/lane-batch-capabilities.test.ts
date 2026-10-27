@@ -9,7 +9,11 @@ it.each([false, true])(
     const snapshot = createFixtureSnapshot();
     const lanes = snapshot.lanes!.lanes;
     const profiles = snapshot.profiles!;
-    profiles.profiles[0].signInEvent = true;
+    profiles.profiles[0].extendedOptions = { sssCopilot: { filename: "" } };
+    lanes.find((lane) => lane.id === "lane-a")!.arknights.routine = {
+      version: 1,
+      steps: [{ skillId: "sss-copilot", enabled: true }],
+    };
     if (reverse) lanes.reverse();
     const started: string[] = [];
     const pendingJob = new Promise<void>(() => {});
@@ -27,7 +31,10 @@ it.each([false, true])(
     expect(result).toEqual({
       batchId: "batch",
       issues: [
-        { laneId: "lane-a", message: expect.stringContaining("限时签到") },
+        {
+          laneId: "lane-a",
+          message: expect.stringContaining("保全派驻缺少本地作业"),
+        },
       ],
     });
     expect(result.issues![0].message).toContain(
@@ -40,14 +47,20 @@ it("rejects all-incompatible batches clearly instead of returning a success rece
   const snapshot = createFixtureSnapshot();
   const lanes = snapshot.lanes!.lanes;
   const profiles = snapshot.profiles!;
-  for (const profile of profiles.profiles) profile.signInEvent = true;
+  for (const profile of profiles.profiles)
+    profile.extendedOptions = { sssCopilot: { filename: "" } };
+  for (const lane of lanes)
+    lane.arknights.routine = {
+      version: 1,
+      steps: [{ skillId: "sss-copilot", enabled: true }],
+    };
   const started = vi.fn();
   await expect(
     launchIndependentLanes(lanes, "batch", async (lane) => {
       freezeLaneExecution(lane, profiles, false);
       started();
     }),
-  ).rejects.toThrow(/未启动任何账号.*限时签到/);
+  ).rejects.toThrow(/未启动任何账号.*保全派驻缺少本地作业/);
   expect(started).not.toHaveBeenCalled();
 });
 

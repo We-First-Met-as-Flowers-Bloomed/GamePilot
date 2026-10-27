@@ -19,12 +19,12 @@ function option(
   );
 }
 
-it("disables new unsupported rewards but lets old selected rewards be turned off", () => {
-  expect(option(false)).toContain('disabled=""');
-  expect(option(false)).toContain("当前不支持");
+it("allows sign-in rewards supported by the pinned upgraded engine and honors the busy lock", () => {
+  expect(option(false)).not.toContain('disabled=""');
+  expect(option(false)).not.toContain("当前不支持");
   expect(option(true)).not.toContain('disabled=""');
   expect(option(true)).toContain('aria-pressed="true"');
-  expect(option(true)).toContain("请先关闭");
+  expect(option(true)).not.toContain("请先关闭");
   expect(option(true, "signInEvent", true)).toContain('disabled=""');
   expect(option(false, "freeRecruit")).not.toContain('disabled=""');
 });

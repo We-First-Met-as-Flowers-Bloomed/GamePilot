@@ -145,10 +145,16 @@ export function parseMuMuInstances(text: string): MuMuInstance[] {
         address: state.address,
         arknights: null,
         onmyoji: false,
+        supportedGames: [],
+        automationReady: false,
       } satisfies MuMuInstance;
     })
     .sort((a, b) => a.instance - b.instance);
 }
+
+/** 当前 app 已具备自动化能力的游戏；阴阳师底层技能未完成，暂不列入。 */
+export const AUTOMATABLE_GAMES = ["arknights"] as const;
+export type AutomatableGame = (typeof AUTOMATABLE_GAMES)[number];
 
 export function classifyGamePackages(packages: string[]) {
   const installed = new Set(packages.map((value) => value.trim()));
@@ -189,15 +195,23 @@ export async function discoverMuMuInstances(
           .split(/\r?\n/)
           .map((line) => line.replace(/^package:/, "").trim())
           .filter(Boolean);
-        return { ...instance, ...classifyGamePackages(packages) };
+        const games = classifyGamePackages(packages);
+        const supportedGames: AutomatableGame[] = [];
+        if (games.arknights) supportedGames.push("arknights");
+        return {
+          ...instance,
+          ...games,
+          supportedGames,
+          automationReady: instance.running && supportedGames.length > 0,
+        };
       } catch {
         return instance;
       }
     }),
   );
 }
-/** Read-only lookup for recovery: never launch a stopped instance. */
-export async function currentMuMuDevice(
+/** Read-only instance facts; does not launch, reconnect or modify the instance. */
+export async function readMuMuInstanceInfo(
   manager: string,
   instance: number,
   run = command,
@@ -209,10 +223,18 @@ export async function currentMuMuDevice(
     instance > 999
   )
     throw Error("原请求的 MuMu 绑定不完整，无法核对设备");
-  const info = parseMuMuInfo(
+  return parseMuMuInfo(
     await run(manager, ["info", "-v", String(instance)]),
     instance,
   );
+}
+/** Read-only lookup for recovery: never launch a stopped instance. */
+export async function currentMuMuDevice(
+  manager: string,
+  instance: number,
+  run = command,
+) {
+  const info = await readMuMuInstanceInfo(manager, instance, run);
   if (!info.running || !info.ready)
     throw Error("原模拟器未就绪，请先手动打开对应实例；此次核对不会启动游戏");
   return {

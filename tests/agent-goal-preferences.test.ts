@@ -6,16 +6,22 @@ import { createAgentTools } from "../packages/agent/tools";
 import { canonical } from "../packages/acceptance/files";
 import { plannerProfile } from "../games/agent-configuration";
 import type { AgentRuntimePrincipal } from "../packages/protocol/agent-runtime";
+import { agentLaneAlias } from "../packages/protocol/lane-alias";
+import { createGameGoalTools } from "../packages/agent/game-tools";
 const principal = (prompt: string): AgentRuntimePrincipal => ({
   sessionId: "chat-a",
   turnId: "turn-a",
   prompt,
 });
 
-function setup() {
+function setup(count = 2) {
   const fixture = createFixtureSnapshot();
   let lanes = structuredClone(fixture.lanes!);
   let profiles = structuredClone(fixture.profiles!);
+  if (count !== 2) {
+    lanes.lanes = Array.from({ length: count }, (_, index) => ({ ...structuredClone(lanes.lanes[0]), instance: index }));
+    profiles.profiles = Array.from({ length: count }, () => structuredClone(profiles.profiles[0]));
+  }
   lanes.lanes.forEach((lane, index) => {
     lane.id = `private-${index}`;
     lane.name = `private account ${index}`;
@@ -45,7 +51,7 @@ function setup() {
         ...lanes,
         lanes: lanes.lanes.map((lane, index) => ({
           ...structuredClone(lane),
-          id: `lane-${String.fromCharCode(97 + index)}`,
+          id: agentLaneAlias(index),
           name: `槽位 ${index + 1}`,
           managerPath: "",
           arknights: {
@@ -87,6 +93,16 @@ function setup() {
     profiles: () => profiles,
   };
 }
+
+it.each([27, 64])("saves explicit preferences for %i public channel aliases", async (count) => {
+  const t = setup(count);
+  const laneIds = Array.from({ length: count }, (_, index) => agentLaneAlias(index));
+  const result = await t.service.save({ environmentRevision: t.revision(), laneIds, gameId: "onmyoji", skillIds: ["mail"] });
+  expect(result.changedLaneIds).toEqual(laneIds);
+  const tools = createGameGoalTools({ principal: principal("以后所有账号阴阳师只领邮件"), source: "configured", host: {} as never });
+  const spec: any = tools.specs.find((tool) => tool.name === "save_daily_preference");
+  expect(spec.inputSchema.properties.laneIds.maxItems).toBe(64);
+});
 
 it("saves a selected public account's Onmyoji routine flags while preserving order, weekdays, identity and other accounts", async () => {
   const t = setup();

@@ -23,7 +23,15 @@ const maxResponseBytes = 256 * 1024;
 const maxConnections = 16;
 const maxStops = 4;
 const maxMutationRequests = 1024;
-const reads = new Set<LocalControlMethod>(["status", "capabilities", "events"]);
+const reads = new Set<LocalControlMethod>([
+  "status",
+  "capabilities",
+  "events",
+  "arknights-automation",
+  "arknights-run-status",
+  "game-run-status",
+  "game-automation",
+]);
 const failure = (
   code: string,
   message: string,

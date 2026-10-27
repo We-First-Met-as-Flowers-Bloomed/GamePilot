@@ -91,7 +91,7 @@ it("reinspects a low-confidence UID pair and uses only the next fresh matched pa
   const bound = {
     ...config,
     clientType: "Bilibili" as const,
-    expectedUid: "864209759",
+    expectedUid: "123456789",
   };
   const frame = (score: number): ArknightsFrameEvidence =>
     classifyArknightsFrame(

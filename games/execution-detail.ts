@@ -7,77 +7,19 @@ import {
 } from "../packages/protocol/execution";
 import type { ExecutionDetail } from "../packages/protocol/execution-detail";
 import {
-  validateTaskRecord,
+  readTaskRecord,
   type TaskRecord,
 } from "../packages/protocol/task-record";
 import type { ContinuationLink } from "../packages/protocol/continuation";
+import { asRecord as object } from "../packages/protocol/struct";
+import {
+  parseContinuationLink as continuationLink,
+  parseFrozenPlan as frozenPlan,
+} from "../packages/protocol/execution-snapshot";
+import { readableHistorySnapshot } from "./history-gate";
 
 const uncertain = "缺少可靠记录，是否执行过尚不确定";
-function object(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-function continuationLink(value: unknown): ContinuationLink | undefined {
-  const link = object(value);
-  if (
-    !link ||
-    typeof link.parentId !== "string" ||
-    !/^[a-zA-Z0-9:._-]{1,160}$/.test(link.parentId) ||
-    typeof link.parentFingerprint !== "string" ||
-    link.parentFingerprint.length > 128 ||
-    typeof link.acknowledgedPartial !== "boolean"
-  )
-    return;
-  const selections = (value: unknown) => {
-    if (!Array.isArray(value) || value.length > 2) return;
-    const result: ContinuationLink["retained"] = [];
-    for (const raw of value) {
-      const entry = object(raw);
-      if (
-        !entry ||
-        !["arknights", "onmyoji"].includes(String(entry.gameId)) ||
-        !Array.isArray(entry.skillIds) ||
-        entry.skillIds.length > 32 ||
-        entry.skillIds.some(
-          (id) => typeof id !== "string" || !/^[a-zA-Z0-9._-]{1,80}$/.test(id),
-        )
-      )
-        return;
-      result.push({
-        gameId: entry.gameId as string,
-        skillIds: [...entry.skillIds],
-      });
-    }
-    return result;
-  };
-  const retained = selections(link.retained),
-    excluded = selections(link.excluded);
-  if (!retained || !excluded) return;
-  return {
-    parentId: link.parentId,
-    parentFingerprint: link.parentFingerprint,
-    retained,
-    excluded,
-    acknowledgedPartial: link.acknowledgedPartial,
-  };
-}
-function frozenPlan(value: unknown): Plan | undefined {
-  const p = object(value);
-  if (
-    !p ||
-    typeof p.gameId !== "string" ||
-    !p.gameId ||
-    (p.mode !== "live" && p.mode !== "rehearsal") ||
-    !Array.isArray(p.skillIds) ||
-    !p.skillIds.length ||
-    p.skillIds.length > 32 ||
-    p.skillIds.some((id) => typeof id !== "string" || !id) ||
-    new Set(p.skillIds).size !== p.skillIds.length
-  )
-    return undefined;
-  return { gameId: p.gameId, mode: p.mode, skillIds: [...p.skillIds] };
-}
+
 function withinRequest(task: TaskRecord, request: ExecutionRecord): boolean {
   const start = Date.parse(task.startedAt),
     updated = Date.parse(task.updatedAt);
@@ -105,10 +47,12 @@ export function projectExecutionDetail(
   request: ExecutionRecord,
   rawTasks: TaskRecord[],
 ): ExecutionDetail {
-  const tasks = rawTasks.map(validateTaskRecord);
-  const lane = object(request.snapshot.lane);
-  const profile = object(request.snapshot.profile);
-  const agent = object(request.snapshot.agent);
+  const tasks = rawTasks.map(readTaskRecord);
+  const view = readableHistorySnapshot(request);
+  const snapshot = view?.raw ?? {};
+  const lane = object(snapshot.lane);
+  const profile = object(snapshot.profile);
+  const agent = object(snapshot.agent);
   const laneMatches =
     !!request.laneId &&
     lane?.id === request.laneId &&
@@ -124,16 +68,18 @@ export function projectExecutionDetail(
     ? profileMatches
       ? profile?.expectedUid
       : undefined
-    : object(request.snapshot.arknights)?.expectedUid;
+    : object(snapshot.arknights)?.expectedUid;
   const expectedUid = typeof frozenUid === "string" ? frozenUid : undefined;
   const warnings: string[] = [];
+  if (!view)
+    warnings.push("执行快照版本或格式不受支持，原记录保留且不能用于续跑");
   const plans: Plan[] = [];
   for (const [key, gameId] of [
     ["plan", undefined],
     ["arknightsPlan", "arknights"],
     ["onmyojiPlan", "onmyoji"],
   ] as const) {
-    const value = request.snapshot[key];
+    const value = snapshot[key];
     if (value === undefined) continue;
     const plan = frozenPlan(value);
     if (!plan || (gameId && plan.gameId !== gameId)) {
@@ -197,8 +143,8 @@ export function projectExecutionDetail(
       resolution,
       laneId,
       batchId,
-      ...(continuationLink(request.snapshot.continuation)
-        ? { continuation: continuationLink(request.snapshot.continuation) }
+      ...(continuationLink(snapshot.continuation)
+        ? { continuation: continuationLink(snapshot.continuation) }
         : {}),
       ...(laneMatches && typeof lane?.name === "string"
         ? { laneName: lane.name }

@@ -9,12 +9,15 @@ import {
   lstat,
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { resolve, join, relative, isAbsolute } from "node:path";
 import { prepareLicenses } from "./portable-licenses.mjs";
+import { auditDistribution } from "./distribution-audit.mjs";
 import { validateDshRuntime, copyDshRuntime } from "./dsh-portable-runtime.mjs";
 import { pruneReleases } from "./release/prune-releases.mjs";
+import { validateBuild, sourceState } from "./build-provenance.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const json = async (path) => JSON.parse(await readFile(path, "utf8"));
@@ -72,8 +75,44 @@ async function verifyPackage(directory) {
     if (actual[name] !== hash)
       throw new Error(`Package integrity failed: ${name}`);
   const packaged = await json(join(directory, "resources/app/package.json"));
+  if (manifest.distribution?.scope === "public") {
+    const review = await json(join(directory, "public-distribution.json"));
+    const audit = await auditDistribution(directory, review);
+    if (audit.status !== "ready-for-review")
+      throw Error(`Public distribution gate failed: ${audit.gaps.join("; ")}`);
+  }
   if (packaged.version !== manifest.version)
     throw new Error("Packaged version mismatch");
+  const releaseVersion = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/.exec(
+    manifest.version,
+  );
+  if (!releaseVersion) throw Error("Invalid packaged version");
+  const requiresSource =
+    Object.hasOwn(actual, "resources/app/dist/gamepilot-build.json") ||
+    Number(releaseVersion[1]) > 0 ||
+    Number(releaseVersion[2]) >= 16;
+  if (
+    requiresSource ||
+    manifest.source ||
+    packaged.source ||
+    manifest.distribution
+  ) {
+    if (
+      !manifest.source ||
+      JSON.stringify(manifest.source) !== JSON.stringify(packaged.source) ||
+      manifest.source.archive !== `sources/GamePilot-${manifest.version}.tar` ||
+      !/^[a-f0-9]{64}$/.test(manifest.source.sha256) ||
+      actual[manifest.source.archive] !== manifest.source.sha256
+    )
+      throw Error(
+        "Source metadata or archive differs from the reviewed package",
+      );
+    await validateBuild(join(directory, "resources/app/dist"), {
+      appVersion: manifest.version,
+      sourceCommit: manifest.source.commit,
+      sourceTree: manifest.source.tree,
+    });
+  }
   const runtime = await validateDshRuntime(
     join(directory, "resources/gamepilot-dsh-runtime"),
   );
@@ -87,12 +126,25 @@ async function verifyPackage(directory) {
 }
 
 const args = process.argv.slice(2);
+let publicManifest;
+if (args[0] === "--public" && args.length === 2) {
+  publicManifest = await json(resolve(args[1]));
+  if (
+    publicManifest?.version !== 1 ||
+    !Array.isArray(publicManifest.components) ||
+    !publicManifest.components.length
+  )
+    throw Error(
+      "Public packaging requires a reviewed component/notice/source manifest",
+    );
+  args.splice(0, 2);
+}
 if (args[0] === "--verify" && args.length === 2) {
   await verifyPackage(resolve(args[1]));
 } else {
   if (args.length && !(args.length === 1 && args[0] === "--check"))
     throw new Error(
-      "Usage: node scripts/package-portable.mjs [--check | --verify <directory>]",
+      "Usage: node scripts/package-portable.mjs [--check | --verify <directory> | --public <reviewed-manifest.json>]",
     );
   if (process.platform !== "win32" || process.arch !== "x64")
     throw new Error("Build the Windows x64 portable package on Windows x64");
@@ -191,9 +243,47 @@ if (args[0] === "--verify" && args.length === 2) {
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
+    const sourceCommit = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const sourceStatus = spawnSync("git", ["status", "--porcelain"], {
+      cwd: root,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const expectedSource = sourceState(root);
+    const sourceBuild = await validateBuild(join(root, "dist"), {
+      appVersion: metadata.version,
+      sourceCommit: expectedSource.commit,
+      sourceTree: expectedSource.tree,
+    });
+    if (
+      sourceCommit.status !== 0 ||
+      !/^[a-f0-9]{40}$/.test(sourceCommit.stdout.trim()) ||
+      sourceStatus.status !== 0 ||
+      sourceStatus.stdout.trim() ||
+      !sourceBuild.clean ||
+      sourceBuild.sourceCommit !== sourceCommit.stdout.trim() ||
+      sourceBuild.appVersion !== metadata.version
+    )
+      throw Error(
+        "Portable delivery requires committed clean source and a fresh build from that revision",
+      );
+    const sourceArchive = spawnSync(
+      "git",
+      ["archive", "--format=tar", sourceCommit.stdout.trim()],
+      { cwd: root, windowsHide: true, maxBuffer: 128 * 1024 * 1024 },
+    );
+    if (sourceArchive.status !== 0 || !sourceArchive.stdout?.length)
+      throw Error("Unable to export the reviewed GamePilot source revision");
     const staging = `${output}.staging-${process.pid}-${Date.now()}`;
     await mkdir(staging, { recursive: true });
     try {
+      const sourcePath = `sources/GamePilot-${metadata.version}.tar`;
+      await mkdir(join(staging, "sources"));
+      await writeFile(join(staging, sourcePath), sourceArchive.stdout);
       await cp(join(modules, "electron/dist"), staging, { recursive: true });
       await rename(
         join(staging, "electron.exe"),
@@ -224,6 +314,14 @@ if (args[0] === "--verify" && args.length === 2) {
             name: metadata.name,
             productName: "GamePilot",
             version: metadata.version,
+            source: {
+              commit: sourceBuild.sourceCommit,
+              tree: sourceBuild.sourceTree,
+              archive: sourcePath,
+              sha256: await sha256(join(staging, sourcePath)),
+              scope:
+                "GamePilot application source; upstream corresponding-source obligations remain separate",
+            },
             main: "dist/main/index.cjs",
           },
           null,
@@ -272,13 +370,85 @@ if (args[0] === "--verify" && args.length === 2) {
         join(root, "docs/third-party-notices.md"),
         join(staging, "第三方组件说明.md"),
       );
+      await cp(
+        join(root, "docs/upgrade-0.16.0.md"),
+        join(staging, "0.16新功能与验收.md"),
+      );
+      await cp(
+        join(root, "docs/delivery-verification.md"),
+        join(staging, "delivery-verification.md"),
+      );
       await cp(licenses, join(staging, "licenses"), { recursive: true });
+      if (publicManifest) {
+        for (const component of publicManifest.components) {
+          for (const artifact of [
+            ...(component.notices ?? []),
+            ...(component.source ? [component.source] : []),
+          ]) {
+            // Only explicitly reviewed accompanying notices/sources can be added.
+            // Existing staged files are checked by auditDistribution below.
+            if (
+              typeof artifact.path !== "string" ||
+              !/^(?:licenses|sources)\/[A-Za-z0-9._/-]+$/.test(artifact.path) ||
+              artifact.path.split("/").includes("..")
+            )
+              throw Error("Unsafe public notice/source path");
+            const destination = join(staging, artifact.path);
+            try {
+              await access(destination);
+              continue;
+            } catch (error) {
+              if (error.code !== "ENOENT") throw error;
+            }
+            const source = join(root, artifact.path);
+            let ancestor = root;
+            for (const segment of artifact.path.split("/").slice(0, -1)) {
+              ancestor = join(ancestor, segment);
+              const parent = await lstat(ancestor);
+              if (!parent.isDirectory() || parent.isSymbolicLink())
+                throw Error(
+                  "Reviewed source/notice traverses a linked directory",
+                );
+            }
+            const stat = await lstat(source);
+            if (
+              !stat.isFile() ||
+              stat.isSymbolicLink() ||
+              (await sha256(source)) !== artifact.sha256
+            )
+              throw Error(
+                `Missing or changed reviewed source/notice: ${artifact.path}`,
+              );
+            await mkdir(resolve(destination, ".."), { recursive: true });
+            await cp(source, destination, { errorOnExist: true, force: false });
+          }
+        }
+        await writeFile(
+          join(staging, "public-distribution.json"),
+          JSON.stringify(publicManifest, null, 2),
+        );
+      }
+      const distribution = await auditDistribution(staging, publicManifest);
+      await writeFile(
+        join(staging, "distribution-audit.json"),
+        JSON.stringify(distribution, null, 2),
+      );
+      if (publicManifest && distribution.status !== "ready-for-review")
+        throw Error(
+          `Public distribution blocked: ${distribution.gaps.join("; ")}`,
+        );
       const files = await inventory(staging);
       await writeFile(
         join(staging, "package-manifest.json"),
         JSON.stringify(
           {
             version: metadata.version,
+            source: (await json(join(app, "package.json"))).source,
+            distribution: {
+              scope: publicManifest ? "public" : "private-development",
+              inventory: distribution.status,
+              legalComplianceClaimed: false,
+            },
             platform: "win32-x64",
             electron: electron.version,
             maa: maa.version,

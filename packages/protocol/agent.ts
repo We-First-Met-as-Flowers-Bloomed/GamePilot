@@ -1,4 +1,5 @@
 import type { DeviceLanes, Plan } from "./index";
+import { MAX_DEVICE_LANES } from "./index";
 import type { ArknightsProfiles } from "../../games/arknights/config";
 import type { ExecutionRecord } from "./execution";
 import type { TaskRecord } from "./task-record";
@@ -215,8 +216,8 @@ export function validateCompilePlan(input: unknown): CompilePlanInput {
     "at",
     "lanes",
   ]);
-  if (!Array.isArray(v.lanes) || v.lanes.length < 1 || v.lanes.length > 8)
-    throw new AgentToolError("INVALID_INPUT", "请选择1至8个明确的设备槽位");
+  if (!Array.isArray(v.lanes) || v.lanes.length < 1 || v.lanes.length > MAX_DEVICE_LANES)
+    throw new AgentToolError("INVALID_INPUT", `请选择1至${MAX_DEVICE_LANES}个明确的设备槽位`);
   const lanes = v.lanes.map((raw) => {
     const lane = agentObject(raw, ["laneId", "games"]);
     const laneId = agentString(lane.laneId, "设备槽位", 64);

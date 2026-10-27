@@ -103,7 +103,7 @@ describe("current game-day recorded queries", () => {
     expect(firstArk).not.toContain("日期、关联或完成证据不完整");
     expect(firstArk).toContain("关联原计划是否补齐仍未确认");
     expect(firstArk).toContain(
-      "流程完成：启动与上号、保守自动公招、理智作战、基建一键轮换与收菜、好友与信用商店、领取任务奖励",
+      "流程完成：启动与上号、保守自动公招、理智作战、基建换班与收菜、好友与信用商店、领取任务奖励",
     );
     expect(text).toContain("跳过：每日礼包、地域鬼王、花合战奖励");
     expect(text).toContain("未知：启动与上号");

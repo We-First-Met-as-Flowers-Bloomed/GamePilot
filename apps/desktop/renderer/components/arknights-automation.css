@@ -1,0 +1,143 @@
+.ark-automation-controls {
+  border-bottom: 1px solid var(--line);
+  padding: 16px 0;
+  margin-bottom: 16px;
+}
+.ark-automation-toolbar,
+.ark-automation-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+.ark-automation-toolbar > div {
+  flex: 1;
+}
+.ark-automation {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.ark-automation-jobs {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+}
+.ark-automation-job {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+.ark-automation-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ark-automation-title time {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+.ark-automation-title strong {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ark-automation-job-details {
+  margin-top: 8px;
+}
+.ark-automation-job-details summary,
+.daily-plan-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 0;
+}
+.ark-automation-job-details fieldset {
+  border: 0;
+  margin: 0;
+  padding: 12px 0 0;
+  min-width: 0;
+}
+.ark-automation-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 12px;
+}
+.ark-automation-fields label {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+.ark-automation-fields input {
+  width: 100%;
+  min-width: 0;
+}
+.ark-automation-options {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ark-automation-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 4px;
+}
+.ark-automation-choice {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  min-height: 32px;
+}
+.ark-automation-choice[aria-pressed="true"],
+.ark-automation [role="switch"][aria-checked="true"],
+.ark-automation-controls [role="switch"][aria-checked="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ark-automation-order {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding-left: 20px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.ark-automation-order .text-button {
+  font-size: var(--font-xs);
+  margin-left: 8px;
+}
+.ark-automation-delete {
+  margin-left: auto;
+}
+.ark-automation .helper,
+.ark-automation-controls .helper {
+  display: block;
+  margin-top: 8px;
+}
+.ark-automation-title .helper {
+  margin-top: 0;
+}
+.ark-automation-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.daily-plan-details {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+@media (max-width: 1100px) {
+  .ark-automation-toolbar {
+    flex-wrap: wrap;
+  }
+  .ark-automation-toolbar > div {
+    flex-basis: 100%;
+  }
+}

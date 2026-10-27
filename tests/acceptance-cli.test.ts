@@ -65,7 +65,7 @@ it("initializes a future two-lane baseline without fostering and never reports p
         e.plans.every((p: any) => !p.skillIds.includes("foster")),
       ),
     ).toBe(true);
-    expect(report.acceptance).toBe("pending-human-review");
+    expect(report.acceptance).toBe("observing");
     expect(report.summary).toMatchObject({
       total: 14,
       pending: 14,

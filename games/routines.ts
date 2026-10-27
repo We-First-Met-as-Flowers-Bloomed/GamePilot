@@ -60,14 +60,3 @@ export function compileDailyPlan(
   ];
   return validatePlan({ gameId, skillIds, mode: "live" }, games);
 }
-
-export function routineIncludes(
-  gameId: string,
-  input: Routine | undefined,
-  skillId: string,
-  now = new Date(),
-) {
-  return compileDailyPlan(gameId, input, undefined, now).skillIds.includes(
-    skillId,
-  );
-}

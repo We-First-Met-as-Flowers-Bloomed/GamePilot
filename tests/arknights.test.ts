@@ -35,7 +35,7 @@ describe("Arknights integration boundaries", () => {
       params: { client_type: "Official" },
     });
   });
-  it("registers both games and opens only the live-validated Arknights skills", () => {
+  it("registers both games and labels advanced native tasks pending real-device certification", () => {
     expect(games.map((g) => g.id)).toEqual(["onmyoji", "arknights"]);
     expect(games.find((game) => game.id === "arknights")?.skills).toMatchObject(
       [
@@ -51,8 +51,27 @@ describe("Arknights integration boundaries", () => {
         { id: "copilot", ready: true },
         { id: "roguelike", ready: true },
         { id: "reclamation", ready: true },
+        { id: "sss-copilot", ready: true },
+        { id: "paradox-copilot", ready: true },
+        { id: "switch-theme", ready: true },
+        { id: "video-recognition", ready: true },
+        { id: "activity-game", ready: true },
+        { id: "operator-progress", ready: true },
       ],
     );
+    for (const id of [
+      "sss-copilot",
+      "paradox-copilot",
+      "switch-theme",
+      "video-recognition",
+      "activity-game",
+      "operator-progress",
+    ])
+      expect(
+        games
+          .find((game) => game.id === "arknights")
+          ?.skills.find((skill) => skill.id === id)?.description,
+      ).toContain("待实机认证");
     expect(
       validatePlan(
         {
@@ -303,6 +322,9 @@ describe("Arknights integration boundaries", () => {
         add_trust: false,
         ignore_requirements: false,
         support_unit_usage: 0,
+        formation_index: 0,
+        support_unit_name: "",
+        user_additional: [],
       },
     });
   });
@@ -335,21 +357,13 @@ describe("Arknights integration boundaries", () => {
       },
     });
   });
-  it("uses one-key overview rotation while retaining base collection actions", () => {
+  it("uses overview preset rotation with reception chores and trading drones", () => {
     expect(taskFor("infrastructure", defaultArknightsConfig)).toEqual({
       type: "Infrast",
       params: {
         enable: true,
         mode: 20000,
-        facility: [
-          "Mfg",
-          "Trade",
-          "Power",
-          "Control",
-          "Reception",
-          "Office",
-          "Dorm",
-        ],
+        facility: ["Trade", "Reception"],
         drones: "Money",
         replenish: false,
         dorm_notstationed_enabled: false,

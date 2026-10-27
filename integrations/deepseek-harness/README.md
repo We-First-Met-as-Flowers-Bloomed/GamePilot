@@ -7,7 +7,7 @@
 ## 安装
 
 1. 保持GamePilot运行。
-2. Harness侧栏“插件”→“添加插件”，输入绝对本地目录 `<project-root>/integrations/deepseek-harness/gamepilot-mcp`。
+2. Harness侧栏“插件”→“添加插件”，输入绝对本地目录 `D:/Projects/GamePilot/integrations/deepseek-harness/gamepilot-mcp`。
 3. 选择“立即启用”，等待MCP启动和工具发现。
 4. 更换电脑时先调整`cordis.patch.yml`中的Node、MCP脚本及cwd绝对路径；脚本默认连接同一Windows用户的`.gamepilot`。隔离profile用脚本已有的`--profile-dir`参数明确指定。
 

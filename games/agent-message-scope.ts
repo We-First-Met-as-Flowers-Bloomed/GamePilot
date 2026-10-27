@@ -1,4 +1,5 @@
 import type { DeviceLane, Plan } from "../packages/protocol";
+import { agentLaneAlias } from "../packages/protocol/lane-alias";
 import type { GoalScope } from "../packages/protocol/agent-goal";
 import { AgentToolError } from "../packages/protocol/agent";
 import {
@@ -85,7 +86,7 @@ function accountReferences(text: string, lanes: MessageAccountLane[]) {
     for (const alias of new Set([
       lane.id,
       lane.name,
-      `lane-${String.fromCharCode(97 + index)}`,
+      agentLaneAlias(index),
     ])) {
       if (alias.length < 2) continue;
       const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

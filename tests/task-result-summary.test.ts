@@ -43,6 +43,28 @@ function step(skillId: string, e?: ArknightsExecutionEvidence): TaskStepRecord {
 const item = (r: TaskRecord, id: string) =>
   summarizeTaskResult(r).items.find((i) => i.id === id)!;
 
+it("shows Reception subitems from their own evidence and leaves absent or legacy actions unconfirmed", () => {
+  const e = native("Infrast");
+  e.statistics = {
+    version: 1,
+    infrastructure: {
+      reception: { observedNodes: ["GetSelfClue", "InfrastClueQuickInsert"] },
+    },
+  };
+  const r = record("arknights", [step("infrastructure", e)]);
+  expect(item(r, "reception-self-clue").value).toContain("已观察");
+  expect(item(r, "reception-message-board").value).toContain("未记录");
+  expect(item(r, "reception-message-board").status).toBe("unknown");
+  expect(item(r, "reception-insert").status).toBe("unknown");
+  expect(item(r, "reception-insert").value).toContain("入口");
+  expect(
+    item(
+      record("arknights", [step("infrastructure", native("Infrast"))]),
+      "reception-self-clue",
+    ).value,
+  ).toContain("未记录");
+});
+
 it("keeps old missing statistics unknown and the last settlement separate", () => {
   const e = {
     ...native("Fight"),

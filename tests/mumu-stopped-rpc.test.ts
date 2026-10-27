@@ -76,6 +76,8 @@ it("preserves discovery of a healthy instance alongside the real stopped RPC 900
       address: "",
       arknights: null,
       onmyoji: false,
+      supportedGames: [],
+      automationReady: false,
     },
     {
       instance: 1,
@@ -85,6 +87,8 @@ it("preserves discovery of a healthy instance alongside the real stopped RPC 900
       address: "127.0.0.1:16416",
       arknights: null,
       onmyoji: false,
+      supportedGames: [],
+      automationReady: false,
     },
   ]);
 });

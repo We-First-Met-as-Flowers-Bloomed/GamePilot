@@ -1,0 +1,284 @@
+/* Workbench geometry; semantic colors remain in the shared design system. */
+.chat-shell .sidebar {
+  width: 260px;
+  border-right: 1px solid var(--line);
+  padding-top: 24px;
+}
+.chat-shell .main-shell {
+  margin-left: 260px;
+  min-width: 0;
+}
+.chat-shell.sidebar-collapsed .main-shell {
+  margin-left: 0;
+}
+.chat-shell .content-layout {
+  display: flex;
+  flex-direction: row;
+  position: relative;
+  min-width: 0;
+}
+.chat-shell .main-content {
+  flex: 1 1 0%;
+  min-width: 0;
+  width: 0;
+}
+.chat-session-group h2 {
+  font-size: var(--font-xs);
+  font-weight: 500;
+  color: var(--muted);
+  padding: 12px 12px 4px;
+  margin: 0;
+  border: 0;
+}
+.chat-session-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.chat-session-row .chat-session {
+  flex: 1;
+  min-width: 0;
+}
+.chat-session-row .session-menu-trigger {
+  width: 28px;
+  flex-shrink: 0;
+  opacity: 0;
+}
+.chat-session-row:hover .session-menu-trigger,
+.chat-session-row:focus-within .session-menu-trigger {
+  opacity: 1;
+}
+.chat-session-actions {
+  position: relative;
+  flex-shrink: 0;
+}
+.chat-session-menu {
+  position: fixed;
+  z-index: 20;
+  width: 208px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--raised);
+  box-shadow: var(--shadow-md);
+}
+.chat-session-menu [role="menuitem"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-xs);
+}
+.chat-session-menu [role="menuitem"]:hover,
+.chat-session-menu [role="menuitem"]:focus-visible {
+  background: var(--surface-muted);
+}
+.chat-session-menu [role="menuitem"] small {
+  margin-left: auto;
+  color: var(--muted);
+}
+.chat-session-menu [role="menuitem"].danger {
+  color: var(--danger);
+}
+.chat-session-menu .helper {
+  margin: 8px;
+}
+.sidebar-archives {
+  flex-shrink: 0;
+}
+.chat-archives-dialog {
+  width: min(840px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  padding: 24px;
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow-y: auto;
+}
+.chat-archives-dialog::backdrop {
+  background: var(--overlay);
+}
+.chat-archives-dialog > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.chat-archives-dialog h2 {
+  margin: 0;
+}
+.chat-archive-restore {
+  margin-bottom: 12px;
+}
+.device-preview-select {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  margin: 12px 0;
+}
+.device-preview-select select {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+}
+.device-preview-message {
+  overflow-wrap: anywhere;
+}
+.chat-shell .chat-workspace-nav {
+  padding: 0 24px;
+}
+.chat-shell .chat-scroll {
+  padding: 8px 24px 0;
+}
+.chat-scroll > * {
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.chat-shell .chat-composer-wrap {
+  max-width: 760px;
+  width: calc(100% - 48px);
+  flex-shrink: 0;
+}
+.workspace-panel {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 280px;
+  max-width: 480px;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.workspace-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.workspace-panel-header [role="tablist"] {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+}
+.workspace-panel-header [role="tab"] {
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  font-size: var(--font-xs);
+}
+.workspace-panel-header [role="tab"][aria-selected="true"] {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+.workspace-panel-content {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.workspace-panel-content > [role="tabpanel"] {
+  padding: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-panel .session-task-workspace {
+  margin: 0;
+}
+.workspace-panel .session-task-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+.workspace-panel .trajectory-turn {
+  padding: 12px;
+}
+.workspace-panel .trajectory-turn > header {
+  flex-wrap: wrap;
+}
+.workspace-panel .agent-call-io {
+  grid-template-columns: minmax(0, 1fr);
+}
+.workspace-panel .chat-trajectory {
+  min-width: 0;
+}
+.workspace-panel .workspace-device-content {
+  overflow-y: auto;
+  padding: 20px;
+}
+.workspace-resize {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  z-index: 2;
+  cursor: col-resize;
+  touch-action: none;
+}
+.workspace-resize:hover,
+.workspace-resize:focus-visible {
+  background: var(--accent);
+  opacity: 0.5;
+}
+.workspace-rename-dialog {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  color: var(--text);
+  padding: 24px;
+  max-width: 440px;
+  box-shadow: var(--shadow-md);
+}
+.workspace-rename-dialog::backdrop {
+  background: var(--overlay);
+}
+.workspace-rename-dialog h2 {
+  margin-top: 0;
+}
+.workspace-rename-dialog label {
+  display: block;
+  margin: 16px 0 8px;
+}
+.workspace-rename-dialog input {
+  width: 100%;
+  border-color: var(--control-border);
+}
+.workspace-rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+@media (max-width: 1100px) {
+  .chat-shell .sidebar {
+    width: 260px;
+  }
+  .chat-shell .main-shell {
+    margin-left: 260px;
+  }
+  .chat-shell.sidebar-collapsed .main-shell {
+    margin-left: 0;
+  }
+  .workspace-panel {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 8;
+    box-shadow: var(--shadow-md);
+  }
+}

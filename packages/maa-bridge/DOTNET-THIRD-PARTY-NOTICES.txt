@@ -89,7 +89,7 @@ https://zlib.net/zlib_license.html
      claim that you wrote the original software. If you use this software
      in a product, an acknowledgment in the product documentation would be
      appreciated but is not required.
-  2. TestAltered source versions must be plainly marked as such, and must not be
+  2. Altered source versions must be plainly marked as such, and must not be
      misrepresented as being the original software.
   3. This notice may not be removed or altered from any source distribution.
 
@@ -464,7 +464,7 @@ A Universally Unique IDentifier (UUID) URN Namespace
 ----------------------------------------------------
 
 Copyright (c) 1990- 1993, 1996 Open Software Foundation, Inc.
-Copyright (c) 1989 by Hewlett-Packard Company, Palo TestAlto, Ca. &
+Copyright (c) 1989 by Hewlett-Packard Company, Palo Alto, Ca. &
 Digital Equipment Corporation, Maynard, Mass.
 Copyright (c) 1998 Microsoft.
 To anyone who acknowledges that this file is provided "AS IS"
@@ -573,7 +573,7 @@ License notice for Printing Floating-Point Numbers (Dragon4)
      in a product, an acknowledgment in the product documentation would be
      appreciated but is not required.
 
-  2. TestAltered source versions must be plainly marked as such, and must not be
+  2. Altered source versions must be plainly marked as such, and must not be
      misrepresented as being the original software.
 
   3. This notice may not be removed or altered from any source

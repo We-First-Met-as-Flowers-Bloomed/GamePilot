@@ -1,6 +1,13 @@
 /** Observations from one native task; none of these fields asserts reward quantities. */
 export interface ArknightsStatistics {
   version: 1;
+  infrastructure?: {
+    reception: {
+      /** Paired native ProcessTask callbacks; some nodes are detectors, not actions. */
+      observedNodes: ReceptionObservationNode[];
+      errorObserved?: true;
+    };
+  };
   fight?: {
     /** Highest native cumulative report, which may precede the last settlement. */
     completedRunsObserved?: number;
@@ -23,6 +30,18 @@ export interface ArknightsStatistics {
   };
 }
 
+export const RECEPTION_OBSERVATION_NODES = [
+  "InfrastReceptionMessageBoard-Received",
+  "InfrastReceptionMessageBoard-CouldReceive",
+  "GetSelfClue",
+  "InfrastClueQuickInsert",
+  "InfrastClueQuickSendDuplicates",
+  "EndOfClueExchange",
+  "EndOfClueExchangeClose",
+] as const;
+export type ReceptionObservationNode =
+  (typeof RECEPTION_OBSERVATION_NODES)[number];
+
 const object = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -37,7 +56,12 @@ export function validArknightsStatistics(
   taskType: string,
 ): input is ArknightsStatistics {
   const value = object(input);
-  const branch = { Fight: "fight", Mall: "mall", Award: "award" }[taskType];
+  const branch = {
+    Fight: "fight",
+    Mall: "mall",
+    Award: "award",
+    Infrast: "infrastructure",
+  }[taskType];
   if (
     !value ||
     value.version !== 1 ||
@@ -47,6 +71,24 @@ export function validArknightsStatistics(
     return false;
   const detail = object(value[branch]);
   if (!detail) return false;
+  if (branch === "infrastructure") {
+    const reception = object(detail.reception);
+    return (
+      !!reception &&
+      keys(detail, ["reception"]) &&
+      keys(reception, ["observedNodes", "errorObserved"]) &&
+      Array.isArray(reception.observedNodes) &&
+      reception.observedNodes.length <= RECEPTION_OBSERVATION_NODES.length &&
+      reception.observedNodes.every((node) =>
+        RECEPTION_OBSERVATION_NODES.includes(node),
+      ) &&
+      new Set(reception.observedNodes).size ===
+        reception.observedNodes.length &&
+      (reception.errorObserved === undefined ||
+        reception.errorObserved === true) &&
+      (reception.observedNodes.length > 0 || reception.errorObserved === true)
+    );
+  }
   if (branch === "fight") {
     return (
       keys(detail, ["completedRunsObserved", "firstSanity", "latestSanity"]) &&
@@ -100,6 +142,9 @@ const awardNodes = [
 /** Caller enforces task identity and lifetime. Pair consumption rejects repeated completion
  * callbacks; it does not promise deduplication of a replayed entire native event stream. */
 export class ArknightsStatisticsCollector {
+  private reception: NonNullable<
+    ArknightsStatistics["infrastructure"]
+  >["reception"] = { observedNodes: [] };
   private fight: NonNullable<ArknightsStatistics["fight"]> = {};
   private mall: NonNullable<ArknightsStatistics["mall"]> = {
     purchaseConfirmations: 0,
@@ -118,6 +163,36 @@ export class ArknightsStatisticsCollector {
 
   accept(code: number, value: Record<string, unknown>) {
     const details = object(value.details);
+    if (this.taskType === "Infrast") {
+      if (code === 20000) {
+        this.pending.clear();
+        if (value.subtask === "InfrastReceptionTask")
+          this.reception.errorObserved = true;
+        return;
+      }
+      if (
+        value.subtask !== "ProcessTask" ||
+        !details ||
+        !RECEPTION_OBSERVATION_NODES.includes(
+          details.task as ReceptionObservationNode,
+        ) ||
+        !count(details.exec_times) ||
+        details.exec_times < 1
+      )
+        return;
+      const task = details.task as ReceptionObservationNode;
+      if (code === 20001) this.pending.set(task, details.exec_times);
+      else if (code === 20002) {
+        const pending = this.pending.get(task);
+        this.pending.delete(task);
+        if (
+          pending === details.exec_times &&
+          !this.reception.observedNodes.includes(task)
+        )
+          this.reception.observedNodes.push(task);
+      }
+      return;
+    }
     if (code === 20003 && this.taskType === "Fight" && details) {
       if (value.what === "FightTimes" && count(details.times_finished))
         this.fight.completedRunsObserved = Math.max(
@@ -203,6 +278,13 @@ export class ArknightsStatisticsCollector {
   }
 
   finish(nativeConfirmed: boolean): ArknightsStatistics | undefined {
+    if (this.taskType === "Infrast")
+      return this.reception.observedNodes.length || this.reception.errorObserved
+        ? {
+            version: 1,
+            infrastructure: { reception: structuredClone(this.reception) },
+          }
+        : undefined;
     if (this.taskType === "Fight")
       return Object.keys(this.fight).length
         ? { version: 1, fight: { ...this.fight } }

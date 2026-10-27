@@ -5,6 +5,72 @@ import {
   type GameWorkerAdapter,
 } from "../games/plugin";
 import { gamePlugins } from "../games/registry";
+import { validateGameOrder } from "../games/agent";
+import { executeRegisteredLanePlan } from "../apps/desktop/main/lane-plan";
+
+it("orders three trusted plugins and executes their registered lane actions", async () => {
+  const builtins = gamePlugins.list();
+  const third: GamePlugin = {
+    ...gamePlugins.get("onmyoji"),
+    descriptor: {
+      ...gamePlugins.get("onmyoji").descriptor,
+      id: "third-fixture",
+    },
+    order: 30,
+    lane: {
+      ...gamePlugins.get("onmyoji").lane!,
+      actionKey: "third",
+      enabled: () => true,
+    },
+  };
+  const registry = createTrustedGameRegistry([...builtins, third]);
+  expect(() =>
+    validateGameOrder(
+      [
+        { gameId: "arknights" },
+        { gameId: "onmyoji" },
+        { gameId: "third-fixture" },
+      ],
+      registry,
+    ),
+  ).not.toThrow();
+  expect(() =>
+    validateGameOrder(
+      [{ gameId: "third-fixture" }, { gameId: "arknights" }],
+      registry,
+    ),
+  ).toThrow("顺序");
+  const calls: string[] = [];
+  const lane = {
+    arknights: { enabled: true },
+    onmyoji: { enabled: true },
+  } as never;
+  const actions = Object.fromEntries(
+    ["prepare", "arknights", "closeArknights", "onmyoji", "third"].map(
+      (key) => [
+        key,
+        async () => {
+          calls.push(key);
+        },
+      ],
+    ),
+  );
+  const result = await executeRegisteredLanePlan(lane, registry, actions);
+  expect(calls).toEqual([
+    "prepare",
+    "arknights",
+    "closeArknights",
+    "onmyoji",
+    "third",
+  ]);
+  expect(result.third).toBe("succeeded");
+  expect(() =>
+    createTrustedGameRegistry([
+      ...builtins,
+      { ...third, order: builtins[0].order },
+    ]),
+  ).toThrow("顺序");
+});
 
 it("runs a trusted synthetic registration through compile, adapter, outcome, day and recovery without platform dispatch edits", async () => {
   const descriptor = {

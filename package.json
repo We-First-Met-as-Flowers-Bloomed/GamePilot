@@ -1,11 +1,21 @@
 {
   "name": "gamepilot",
-  "version": "0.15.13",
+  "version": "0.18.8",
   "private": true,
   "type": "module",
   "main": "dist/main/index.cjs",
   "scripts": {
+    "anchors:audit": "node scripts/anchors-audit.mjs",
+    "live:onmyoji": "node scripts/live-onmyoji.mjs",
+    "live:arknights": "node scripts/live-arknights.mjs",
+    "game:mode": "node scripts/game-mode.mjs",
+    "game:status": "node scripts/game-mode.mjs --status",
+    "game:catchup": "node scripts/game-mode.mjs --catchup",
+    "daily:preflight": "node scripts/daily-preflight.mjs",
+    "ocr:probe": "node scripts/ocr-probe.mjs",
     "smoke:chat": "node scripts/chat-ui-smoke.mjs",
+    "smoke:ui-a11y": "node scripts/chat-ui-smoke.mjs --a11y",
+    "setup:ui-a11y": "node scripts/setup-ui-a11y.mjs",
     "smoke:goals": "node scripts/agent/goal-ui-smoke.mjs",
     "smoke:dsh-live": "node scripts/agent/dsh-live-readonly.mjs",
     "setup:dsh": "node scripts/setup-dsh-runtime.mjs",
@@ -31,7 +41,12 @@
     "package:portable": "npm run setup:ocr && npm run verify && node scripts/package-portable.mjs",
     "release:prune": "node scripts/release/prune-releases.mjs",
     "setup:maacore": "node scripts/setup-maacore.mjs",
-    "build:bridge": "node scripts/build-bridge.mjs"
+    "build:bridge": "node scripts/build-bridge.mjs",
+    "setup:all": "node scripts/setup-all.mjs",
+    "distribution:audit": "node scripts/distribution-audit.mjs",
+    "template:guide": "node scripts/template-guide.mjs",
+    "engine:audit": "node scripts/engine-audit.mjs",
+    "acceptance:idempotency": "node scripts/acceptance/idempotency.mjs"
   },
   "dependencies": {
     "@maaxyz/maa-node": "5.13.0",
@@ -40,6 +55,7 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "axe-core": "4.10.3",
     "@types/node": "22.20.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
@@ -51,5 +67,9 @@
     "vite": "6.4.3",
     "vitest": "3.2.7"
   },
-  "license": "AGPL-3.0-only"
+  "engines": {
+    "node": "22.18.0",
+    "npm": "10.9.3"
+  },
+  "packageManager": "npm@10.9.3"
 }

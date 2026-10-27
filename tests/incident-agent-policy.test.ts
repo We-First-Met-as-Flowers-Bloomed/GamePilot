@@ -179,7 +179,7 @@ it("recognizes bounded network evidence without exporting OCR text or identifier
         box: [600, 400, 400, 40] as [number, number, number, number],
       },
       {
-        text: "UID 753108577 PRIVATE",
+        text: "UID 987654321 PRIVATE",
         score: 1,
         box: [0, 0, 300, 40] as [number, number, number, number],
       },

@@ -42,6 +42,50 @@ const pair = (
 const stats = (tracker: ArknightsTaskEvidence, returned = false): any =>
   (tracker.finish(true, returned) as any).statistics;
 
+it("records paired Reception observations separately without inferring them from a completed facility", () => {
+  const tracker = start("Infrast");
+  pair(tracker, "Infrast", "ReceptionFlag");
+  tracker.accept(callback(10002, "Infrast"));
+  expect(
+    stats(tracker, true)?.infrastructure?.reception?.observedNodes,
+  ).toBeUndefined();
+  const observed = start("Infrast");
+  pair(observed, "Infrast", "InfrastReceptionMessageBoard-Received");
+  pair(observed, "Infrast", "InfrastClueQuickInsert");
+  pair(observed, "Infrast", "SendClues"); // entering the gift page is not a gift confirmation
+  observed.accept(node(20002, "Infrast", "GetSelfClue")); // unmatched completion
+  observed.accept(callback(10002, "Infrast"));
+  expect(stats(observed, true)?.infrastructure.reception.observedNodes).toEqual(
+    ["InfrastReceptionMessageBoard-Received", "InfrastClueQuickInsert"],
+  );
+  expect(validArknightsEvidence(observed.finish(true, true))).toBe(true);
+});
+it("keeps partial Reception actions and errors, rejecting other tasks and forged action nodes", () => {
+  const tracker = start("Infrast");
+  tracker.accept(node(20001, "Infrast", "GetSelfClue", 1, 2));
+  tracker.accept(node(20002, "Infrast", "GetSelfClue", 1, 2));
+  pair(tracker, "Infrast", "EndOfClueExchange");
+  tracker.accept(
+    callback(20000, "Infrast", { subtask: "InfrastReceptionTask" }),
+  );
+  tracker.accept(callback(10000, "Infrast"));
+  const e = tracker.finish(true, false);
+  expect(e.completion).toBe("unknown");
+  expect(e.statistics?.infrastructure?.reception).toEqual({
+    observedNodes: ["EndOfClueExchange"],
+    errorObserved: true,
+  });
+  expect(
+    validArknightsEvidence({
+      ...e,
+      statistics: {
+        version: 1,
+        infrastructure: { reception: { observedNodes: ["SendClues"] } },
+      },
+    }),
+  ).toBe(false);
+});
+
 it("keeps cumulative fight observations separate from the last settlement batch", () => {
   const tracker = start("Fight");
   tracker.accept(extra("Fight", "SanityBeforeStage", { current_sanity: 210 }));

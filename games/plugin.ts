@@ -136,7 +136,16 @@ export function runPluginSkill(
 
 export function createTrustedGameRegistry(plugins: readonly GamePlugin[]) {
   const byId = new Map<string, GamePlugin>();
+  const orders = new Set<number>();
   for (const plugin of plugins) {
+    if (
+      !Number.isSafeInteger(plugin.order) ||
+      plugin.order < 0 ||
+      plugin.order > 1000 ||
+      orders.has(plugin.order)
+    )
+      throw Error("游戏插件顺序无效或重复");
+    orders.add(plugin.order);
     if (
       !/^[a-z][a-z0-9-]{0,63}$/.test(plugin.descriptor.id) ||
       byId.has(plugin.descriptor.id)
@@ -178,3 +187,4 @@ export function createTrustedGameRegistry(plugins: readonly GamePlugin[]) {
     },
   });
 }
+export type TrustedGameRegistry = ReturnType<typeof createTrustedGameRegistry>;

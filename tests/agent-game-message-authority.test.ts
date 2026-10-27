@@ -1,4 +1,4 @@
-import { expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { gameMessageAuthority } from "../packages/agent/game-message-authority";
 import { createGameGoalTools } from "../packages/agent/game-tools";
 import { createFixtureSnapshot } from "../packages/agent/fixture";
@@ -673,3 +673,67 @@ it.each([
     expect(x.accepted).not.toHaveBeenCalled();
   },
 );
+
+/**
+ * 表驱动特征表（characterization table）：把 gameMessageAuthority 当前的
+ * 授予/收窄/拒绝语义整体钉住。评审要求未来把"正则授予"改为"结构化确认"
+ * 时，这张表就是重构的回归门禁——有意的行为变更必须逐行修改此表并说明。
+ */
+describe("gameMessageAuthority 表驱动特征表", () => {
+  const rows: Array<{
+    prompt: string;
+    execute?: boolean;
+    resume?: boolean;
+    stop?: boolean;
+    shopping?: false;
+  }> = [
+    // —— 明确授予 ——
+    { prompt: "帮我跑一下两个账号的日常", execute: true },
+    { prompt: "现在开始明日方舟日常", execute: true },
+    { prompt: "请登录账号一", execute: true },
+    { prompt: "领取邮件和奖励", execute: true },
+    // 已修复：动词表补 先/清完，带汇报后缀的清完指令可授权
+    { prompt: "先把日常清完，然后告诉我结果", execute: true },
+    // 已修复：主语词表补 登录，登录类指令不再需要显式主语
+    { prompt: "重新登录并继续", execute: true, resume: true },
+    // —— 询问不授予 ——
+    { prompt: "怎么查看执行结果？", execute: false },
+    { prompt: "能不能帮我现在运行一下？", execute: false },
+    { prompt: "我的账号配置是什么", execute: false },
+    { prompt: "日常需要哪些条件", execute: false },
+    // —— 否定收窄 ——
+    { prompt: "不要运行明日方舟", execute: false },
+    { prompt: "先别跑日常", execute: false },
+    { prompt: "暂停一下，不要执行任务", execute: false },
+    { prompt: "不运行阴阳师，只跑明日方舟", execute: true },
+    // —— 预览/查询仅收窄 ——
+    { prompt: "只给我看看计划清单，先别执行", execute: false },
+    { prompt: "检查一下账号状态", execute: false },
+    // —— 偏好设置不授予当次执行 ——
+    { prompt: "以后每天自动跑日常", execute: false },
+    { prompt: "把默认日常设成明日方舟", execute: false },
+    // —— 续跑 / 停止 ——
+    { prompt: "继续", resume: true, execute: false },
+    { prompt: "帮我重试一下", resume: true, execute: false },
+    { prompt: "停止当前任务", stop: true, execute: false },
+    { prompt: "取消", stop: true, execute: false },
+    { prompt: "不要停止", stop: false },
+    // 已修复：句首停止动词即授予 stop（询问/否定门仍生效）
+    { prompt: "停止之后告诉我结果", stop: true, execute: false },
+    // —— 历史引用 / 引号内容不授予 ——
+    { prompt: '之前说过"帮我跑日常"，现在不跑', execute: false },
+    { prompt: "> 帮我运行日常", execute: false },
+    // —— 约束 ——
+    // 已修复：购物约束补 买商店/逛商店
+    { prompt: "跑日常，不要买商店", execute: true, shopping: false },
+  ];
+
+  it.each(rows.map((r) => [r.prompt, r] as const))("%s", (_prompt, row) => {
+    const authority = gameMessageAuthority(row.prompt);
+    expect(authority.execute).toBe(row.execute ?? false);
+    expect(authority.resume).toBe(row.resume ?? false);
+    expect(authority.stop).toBe(row.stop ?? false);
+    if (row.shopping === false)
+      expect(authority.constraints.shopping).toBe(false);
+  });
+});

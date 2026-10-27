@@ -16,6 +16,40 @@ const records = reduceTaskRecords([], {
   message: "start",
   plan: { gameId: "onmyoji", skillIds: ["mail"], mode: "rehearsal" },
 });
+it("does not pick a later success when request ownership is ambiguous", () => {
+  const first = {
+    ...records[0],
+    executionId: "original",
+    status: "unknown" as const,
+  };
+  const later = {
+    ...records[0],
+    executionId: "other",
+    runId: "other-run",
+    startedAt: "2026-09-24T02:00:00.000Z",
+    status: "succeeded" as const,
+    steps: records[0].steps.map((step) => ({
+      ...step,
+      status: "succeeded" as const,
+    })),
+  };
+  for (const candidates of [
+    [first, later],
+    [later, first],
+  ]) {
+    const html = renderToStaticMarkup(
+      createElement(TaskProgress, {
+        records: candidates,
+        laneId: "a",
+        batchId: "old",
+        gameId: "onmyoji",
+      }),
+    );
+    expect(html).toContain("记录关联待核对");
+    expect(html).not.toContain("演练完成");
+    expect(html).not.toContain("task-steps");
+  }
+});
 it("does not show an old batch or another device as the current game result", () => {
   const html = renderToStaticMarkup(
     createElement(TaskProgress, {

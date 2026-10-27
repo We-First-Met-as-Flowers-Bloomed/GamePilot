@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Plus, Trash2 } from "lucide-react";
 import {
   defaultArknightsProfiles,
@@ -11,6 +11,10 @@ import {
   arknightsAwardCapability,
   type AwardConfigKey,
 } from "../../../../games/arknights/capabilities";
+import ArknightsTaskOptionsPanel from "./ArknightsTaskOptions";
+import ArknightsActivityStages from "./ArknightsActivityStages";
+import ArknightsExtendedOptionsPanel from "./ArknightsExtendedOptions";
+import ArknightsCopilotOptionsPanel from "./ArknightsCopilotOptions";
 
 export function ArknightsRewardOption({
   configKey,
@@ -50,29 +54,40 @@ export function ArknightsRewardOption({
 
 export default function ArknightsSettings({
   desktop,
+  profileId,
 }: {
   desktop: DesktopController;
+  profileId?: string;
 }) {
   const { api, active, busy } = desktop;
   const [settings, setSettings] = useState<ArknightsProfiles>(() =>
-    structuredClone(defaultArknightsProfiles),
+    structuredClone(
+      desktop.arknightsProfiles?.profiles.length
+        ? desktop.arknightsProfiles
+        : defaultArknightsProfiles,
+    ),
   );
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(
+    !!desktop.arknightsProfiles?.profiles.length,
+  );
   const working = busy === "arknights-save" || busy === "arknights-probe";
   const [message, setMessage] = useState("");
   const [engine, setEngine] = useState("尚未检测 MaaCore");
+  const editRevision = useRef(0);
   const disabled = !api || !loaded || active || !!busy || working;
+  const selectedProfileId = profileId ?? settings.activeProfileId;
   const profile =
-    settings.profiles.find((item) => item.id === settings.activeProfileId) ??
-    settings.profiles[0];
+    settings.profiles.find((item) => item.id === selectedProfileId) ??
+    (profileId ? undefined : settings.profiles[0]);
 
   useEffect(() => {
     let mounted = true;
+    const revisionAtRequest = editRevision.current;
     api
       ?.arknights()
       .then((value) => {
         if (mounted) {
-          setSettings(value);
+          if (editRevision.current === revisionAtRequest) setSettings(value);
           setLoaded(true);
         }
       })
@@ -85,15 +100,17 @@ export default function ArknightsSettings({
   }, [api]);
 
   function updateProfile(patch: Partial<ArknightsProfile>) {
+    editRevision.current++;
     setSettings((previous) => ({
       ...previous,
       profiles: previous.profiles.map((item) =>
-        item.id === previous.activeProfileId ? { ...item, ...patch } : item,
+        item.id === selectedProfileId ? { ...item, ...patch } : item,
       ),
     }));
   }
 
   function addProfile() {
+    editRevision.current++;
     const used = new Set(settings.profiles.map((item) => item.name));
     let name = "新账号";
     for (let index = 2; used.has(name); index += 1) name = `新账号 ${index}`;
@@ -112,6 +129,7 @@ export default function ArknightsSettings({
 
   function removeProfile() {
     if (settings.profiles.length === 1) return;
+    editRevision.current++;
     setSettings((previous) => {
       const profiles = previous.profiles.filter(
         (item) => item.id !== previous.activeProfileId,
@@ -126,9 +144,29 @@ export default function ArknightsSettings({
     await desktop.perform("arknights-save", async () => {
       setMessage("");
       try {
-        setSettings(
-          await desktop.saveArknights(validateArknightsProfiles(settings)),
+        let next = settings;
+        if (profileId) {
+          const latest = await api.arknights();
+          const changed = settings.profiles.find(
+            (item) => item.id === profileId,
+          );
+          if (
+            !changed ||
+            !latest.profiles.some((item) => item.id === profileId)
+          )
+            throw Error("该渠道绑定的账号档案不存在，请重新绑定。");
+          next = {
+            ...latest,
+            profiles: latest.profiles.map((item) =>
+              item.id === profileId ? changed : item,
+            ),
+          };
+        }
+        const saved = await desktop.saveArknights(
+          validateArknightsProfiles(next),
         );
+        editRevision.current++;
+        setSettings(saved);
         setMessage("明日方舟账号档案已保存，将用于下次一键日常。");
       } catch (reason) {
         setMessage(reason instanceof Error ? reason.message : String(reason));
@@ -148,6 +186,29 @@ export default function ArknightsSettings({
     });
   }
 
+  async function importMaa() {
+    if (disabled || !api?.importMaaSettings || !profile) return;
+    await desktop.perform("arknights-import", async () => {
+      try {
+        const result = await api.importMaaSettings!({ profileId: profile.id });
+        if (!result) return;
+        updateProfile(result.config);
+        setMessage(
+          `已导入到当前草稿，请检查后保存。${result.warnings.join(" ")}`,
+        );
+      } catch (reason) {
+        setMessage(reason instanceof Error ? reason.message : String(reason));
+      }
+    });
+  }
+
+  if (!profile)
+    return (
+      <section className="surface" role="alert">
+        该渠道绑定的账号档案不存在，请在账号与渠道页重新绑定。
+      </section>
+    );
+
   return (
     <form
       className="surface game-settings-form"
@@ -161,50 +222,57 @@ export default function ArknightsSettings({
         <span className="badge">独立账号配置</span>
       </div>
       <p className="muted">
-        每个档案独立保存服务器、关卡和邮件设置。每日计划使用设备页绑定的档案；工作台单设备任务使用这里的当前档案。
+        {profileId
+          ? "正在编辑所选渠道绑定的账号档案，其他账号和手动设备工具的当前档案保持各自设置。"
+          : "每个档案独立保存服务器、关卡和邮件设置。账号日常使用渠道绑定的档案；高级设备工具使用这里的当前档案。"}
       </p>
 
       <fieldset className="settings-group">
         <legend>账号档案</legend>
-        <div className="profile-toolbar">
-          <label>
-            当前账号档案
-            <select
-              disabled={disabled}
-              value={settings.activeProfileId}
-              onChange={(event) =>
-                setSettings({
-                  ...settings,
-                  activeProfileId: event.target.value,
-                })
-              }
-            >
-              {settings.profiles.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="profile-actions">
-            <button
-              className="button"
-              type="button"
-              disabled={disabled || settings.profiles.length >= 20}
-              onClick={addProfile}
-            >
-              <Plus size={14} /> 新建
-            </button>
-            <button
-              className="button"
-              type="button"
-              disabled={disabled || settings.profiles.length === 1}
-              onClick={removeProfile}
-            >
-              <Trash2 size={14} /> 删除
-            </button>
+        {profileId ? (
+          <p>当前渠道账号档案：{profile.name}</p>
+        ) : (
+          <div className="profile-toolbar">
+            <label>
+              当前账号档案
+              <select
+                disabled={disabled}
+                value={settings.activeProfileId}
+                onChange={(event) => {
+                  editRevision.current++;
+                  setSettings({
+                    ...settings,
+                    activeProfileId: event.target.value,
+                  });
+                }}
+              >
+                {settings.profiles.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="profile-actions">
+              <button
+                className="button"
+                type="button"
+                disabled={disabled || settings.profiles.length >= 100}
+                onClick={addProfile}
+              >
+                <Plus size={14} /> 新建
+              </button>
+              <button
+                className="button"
+                type="button"
+                disabled={disabled || settings.profiles.length === 1}
+                onClick={removeProfile}
+              >
+                <Trash2 size={14} /> 删除
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         <label>
           档案名称
@@ -289,33 +357,24 @@ export default function ArknightsSettings({
           />
         </label>
       </fieldset>
+      <ArknightsActivityStages
+        api={api}
+        profile={profile}
+        disabled={disabled}
+        onChange={updateProfile}
+      />
+      <ArknightsTaskOptionsPanel
+        profile={profile}
+        disabled={disabled}
+        onChange={updateProfile}
+      />
+      <ArknightsExtendedOptionsPanel
+        profile={profile}
+        disabled={disabled}
+        onChange={updateProfile}
+      />
       <details className="settings-details">
-        <summary>高级作业与运行时限</summary>
-        <label>
-          MAA 本地作业 JSON（高级任务，可留空）
-          <input
-            disabled={disabled}
-            value={profile.copilotFile}
-            maxLength={1024}
-            placeholder="例如 D:\\MAA作业\\stage.json"
-            onChange={(event) =>
-              updateProfile({ copilotFile: event.target.value })
-            }
-          />
-        </label>
-        <label>
-          作业循环次数
-          <input
-            disabled={disabled}
-            type="number"
-            min={1}
-            max={99}
-            value={profile.copilotLoopTimes}
-            onChange={(event) =>
-              updateProfile({ copilotLoopTimes: Number(event.target.value) })
-            }
-          />
-        </label>
+        <summary>账号运行时限</summary>
         <label>
           单次任务总时长上限（分钟）
           <input
@@ -330,6 +389,11 @@ export default function ArknightsSettings({
           />
         </label>
       </details>
+      <ArknightsCopilotOptionsPanel
+        profile={profile}
+        disabled={disabled}
+        onChange={updateProfile}
+      />
       <fieldset className="settings-group option-group">
         <legend>日常与奖励</legend>
         <button
@@ -389,22 +453,28 @@ export default function ArknightsSettings({
           信用商店自动购买（保守策略）
         </button>
       </fieldset>
+      {!arknightsAwardCapability("signInEvent").supported && (
+        <p className="muted">
+          {arknightsAwardCapability("signInEvent").reason}
+          {profile.signInEvent && "当前档案保留了旧的开启值，请先关闭后保存。"}
+        </p>
+      )}
       <p className="muted">
-        {arknightsAwardCapability("signInEvent").reason}
-        {profile.signInEvent && "当前档案保留了旧的开启值，请先关闭后保存。"}
-      </p>
-      <p className="muted">
-        一键日常会在这个关卡按当前理智自动代理，理智不足时停止。理智药、过期理智药和源石补充均为
-        0。信用购物随「好友与信用商店」步骤执行，早晚日常共用此账号开关。
-        开启后优先购买招聘许可和龙门币（不限折扣、不受 300 信用阈值限制）；
-        普通阶段只买折扣品，排除家具零件、加急许可与碳。若信用仍超过 300，
-        继续购买信用商品，包括原价及原排除项，避免次日溢出清除。
-        购买后双帧核对余额，不超过 300 为安全；售罄或余额无法确认时提示处理。
-        基建使用进驻总览一键轮换。
+        一键日常使用此账号保存的任务参数。未设置补给时理智药、临期药与源石均关闭；
+        信用购物随「好友与信用商店」步骤执行，早晚日常共用此账号开关。
+        购买后仍会核对商店余额与场景；未确认时提示处理。
       </p>
       <div className="arknights-actions">
         <button className="button primary" disabled={disabled} type="submit">
           {working ? "处理中…" : "保存明日方舟设置"}
+        </button>
+        <button
+          className="button"
+          disabled={disabled || !api?.importMaaSettings}
+          type="button"
+          onClick={() => void importMaa()}
+        >
+          导入 MAA 设置
         </button>
         <button
           className="button"

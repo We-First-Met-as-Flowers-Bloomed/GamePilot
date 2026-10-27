@@ -19,7 +19,7 @@ import {
   type CompiledDraft,
   type AgentHistoryAssessment,
 } from "../protocol/agent";
-import { validateTaskRecord } from "../protocol/task-record";
+import { readTaskRecord } from "../protocol/task-record";
 import {
   plannerSettings,
   plannerDefaultSkills,
@@ -56,7 +56,7 @@ export function createAgentTools(
   if (snapshot.lanes) snapshot.lanes = validateDeviceLanes(snapshot.lanes);
   if (snapshot.profiles)
     snapshot.profiles = validateArknightsProfiles(snapshot.profiles);
-  snapshot.tasks = snapshot.tasks.map(validateTaskRecord);
+  snapshot.tasks = snapshot.tasks.map(readTaskRecord);
   const gameCatalog = gameAgentCatalog();
   const skillPackages = builtinAgentSkills().map((skill) => {
     const bodyByteLength = Buffer.byteLength(skill.body, "utf8");

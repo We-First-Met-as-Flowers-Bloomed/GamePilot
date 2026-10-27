@@ -16,6 +16,15 @@ export function plannerDefaultSkills(
     : dailySkills(gameId);
 }
 
+/** The AI contract only reviews the six daily defaults and zero supplies.
+ * Saved typed options belong to the explicit settings/job review flow, not this contract. */
+export function agentArknightsConfig<T extends ArknightsConfig>(profile: T): T {
+  const safe = structuredClone(profile);
+  for (const key of ["taskOptions", "extendedOptions", "copilotOptions"])
+    Reflect.deleteProperty(safe, key);
+  return safe;
+}
+
 /** Explicit game-data allowlist. Never carry account text or local job paths. */
 export function plannerProfile(
   p: ArknightsProfile,

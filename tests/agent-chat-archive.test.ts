@@ -121,9 +121,11 @@ it("archives every original turn and source before removing the active session, 
   await s.service.snapshot();
   const view = await s.service.archive({ sessionId: "session-1" });
   expect(s.archive).toHaveBeenCalledOnce();
-  expect([...s.archives.values()][0]).toMatchObject({
-    version: 1,
-    id: "session-1",
+  const archived = [...s.archives.values()][0];
+  expect(archived).toMatchObject({
+    version: 2,
+    id: expect.stringMatching(/^archive-[a-f0-9]{64}$/),
+    originalSessionId: "session-1",
     session: { turns: s.initial.sessions[0].turns },
   });
   expect(
@@ -132,7 +134,7 @@ it("archives every original turn and source before removing the active session, 
   expect(view.sessions).toHaveLength(1);
   expect(s.planner.startConversation).not.toHaveBeenCalled();
   const history = await s.service.loadArchived({
-    archiveId: "session-1",
+    archiveId: archived.id,
     limit: 2,
   });
   expect(history).toMatchObject({
@@ -144,7 +146,7 @@ it("archives every original turn and source before removing the active session, 
   expect(
     (
       await s.service.loadArchived({
-        archiveId: "session-1",
+        archiveId: archived.id,
         cursor: history.nextCursor,
         limit: 2,
       })
@@ -210,7 +212,7 @@ it("rejects archiving a model-active or host-active session", async () => {
 });
 
 it("paginates an immutable archive view without duplicate entries after newer archives arrive", async () => {
-  const s = setup();
+  const s = setup(session(99));
   for (let n = 1; n <= 5; n++)
     s.archives.set(`session-${n}`, {
       id: `session-${n}`,
@@ -254,10 +256,10 @@ it("rejects forged IDs, cursors and corrupt archive payloads before exposing his
     s.service.listArchived({ cursor: "bad", limit: 2 }),
   ).rejects.toThrow();
   await s.service.archive({ sessionId: "session-1" });
-  const archive = s.archives.get("session-1");
+  const archive = [...s.archives.values()][0];
   archive.session.turns[0].planner.result.modelText = { bad: true };
   await expect(
-    s.service.loadArchived({ archiveId: "session-1" }),
+    s.service.loadArchived({ archiveId: archive.id }),
   ).rejects.toMatchObject({ code: "CHAT_ARCHIVE_UNAVAILABLE" });
 });
 
@@ -323,8 +325,13 @@ it("summarizes user objectives and host records while leaving model assertions o
 });
 
 it("invalidates a turn cursor when archived content changes and rejects unavailable history explicitly", async () => {
-  const s = setup();
-  await s.service.archive({ sessionId: "session-1" });
+  const s = setup(session(99));
+  s.archives.set("session-1", {
+    version: 1,
+    id: "session-1",
+    archivedAt: at,
+    session: session(),
+  });
   const first = await s.service.loadArchived({
     archiveId: "session-1",
     limit: 1,
@@ -370,7 +377,7 @@ it("frees session capacity only after an explicit archive and never truncates ol
   await service.archive({ sessionId: "session-1" });
   const created = await service.newChat();
   expect(created.sessions).toHaveLength(32);
-  expect(s.archives.get("session-1").session.turns).toHaveLength(64);
+  expect([...s.archives.values()][0].session.turns).toHaveLength(64);
   expect(
     created.sessions.find((item: ChatSession) => item.id === "session-2").turns,
   ).toHaveLength(64);
@@ -431,7 +438,7 @@ it("counts a new turn summary at the 8 MiB boundary without quarantining an arch
   const archived = await s.service.archive({ sessionId: stored.id });
   expect(archived.error).toBeUndefined();
   expect(s.archive).toHaveBeenCalledOnce();
-  expect(s.archives.get(stored.id).session.turns).toEqual(
+  expect([...s.archives.values()][0].session.turns).toEqual(
     before.sessions[0].turns,
   );
   expect(archived.sessions).toHaveLength(1);
@@ -484,4 +491,21 @@ it("rejects a forged summary and corrupt new draft effect metadata while keeping
     load: async () => summaryView,
   });
   expect((await forged.snapshot()).error).toContain("会话");
+});
+
+it("rejects a malformed Copilot review in archived history without exposing a card or changing the original archive", async () => {
+  const s = setup();
+  await s.service.snapshot();
+  const stored = session();
+  stored.turns[0].planner.result!.copilot = {} as never;
+  const record = { version: 1, id: stored.id, archivedAt: at, session: stored };
+  s.archives.set(record.id, record);
+  await expect(
+    s.service.loadArchived({ archiveId: record.id }),
+  ).rejects.toMatchObject({ code: "CHAT_ARCHIVE_UNAVAILABLE" });
+  expect(
+    s.archives.get(record.id).session.turns[0].planner.result.copilot,
+  ).toEqual({});
+  expect(s.archive).not.toHaveBeenCalled();
+  expect(s.save).not.toHaveBeenCalled();
 });

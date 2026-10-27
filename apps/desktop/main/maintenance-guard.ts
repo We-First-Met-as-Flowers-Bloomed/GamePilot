@@ -2,6 +2,10 @@ import type { DeviceLane } from "../../../packages/protocol";
 import type { TaskRecord } from "../../../packages/protocol/task-record";
 import type { ExecutionRecord } from "../../../packages/protocol/execution";
 import {
+  requestMayAffectChannel,
+  taskMayAffectChannel,
+} from "../../../packages/protocol/account-channel";
+import {
   confirmedFosterAt,
   unresolvedFoster,
 } from "../../../games/onmyoji/maintenance-policy";
@@ -17,13 +21,15 @@ export function assertMaintenanceClear(
   const byId = new Map(requests.map((r) => [r.id, r]));
   const matches = (request: ExecutionRecord) =>
     resource === "*" ||
-    request.resources.some((key) => key === "*" || key === resource);
+    request.resources.some((key) => key === "*" || key === resource) ||
+    (lane.legacyBinding !== undefined &&
+      requestMayAffectChannel(request, lane));
   const matching = records.filter((r) => {
     const request = r.executionId ? byId.get(r.executionId) : undefined;
     if (request?.resolution?.action === "abandoned") return false;
     if (request) return matches(request);
     // Legacy/orphan records cannot prove the device changed. Fail closed for this lane.
-    return r.laneId === lane.id || !r.laneId;
+    return taskMayAffectChannel(r, lane);
   });
   const pending = unresolvedFoster(matching, now);
   if (pending)

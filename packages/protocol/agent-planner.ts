@@ -59,6 +59,7 @@ export interface PlannerResult {
   configurationChangedByHost?: true;
   canExecute: false;
   draft?: CompiledDraft;
+  copilot?: import("./copilot-review").CopilotReview;
   records?: AgentRunSummary[];
   incidents?: import("./agent-incident").AgentIncident[];
   trace: {

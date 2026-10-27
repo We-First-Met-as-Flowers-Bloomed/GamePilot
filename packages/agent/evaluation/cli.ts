@@ -18,6 +18,7 @@ import { createAgentTools } from "../tools";
 import { planWithCodex, supportedCodexVersions } from "../codex/adapter";
 import { findCodexExecutable } from "../codex/discovery";
 import { AgentToolError } from "../../protocol/agent";
+import { faultReportComplete } from "./fault-report";
 const root = resolve("artifacts/agent-evaluations");
 const json = (value: unknown) => JSON.stringify(value, null, 2) + "\n";
 const writeNew = (path: string, value: unknown) =>
@@ -251,17 +252,13 @@ async function main() {
         id: r.title.slice(0, 3),
         status: r.status,
       }));
-    const complete =
-      exitCode === 0 &&
-      results.length === 6 &&
+    const complete = faultReportComplete(
+      exitCode,
       evaluationCases
         .filter((c) => c.mode === "fault-injection")
-        .every((c) =>
-          results.some(
-            (r: { id: string; status: string }) =>
-              r.id === c.id && r.status === "passed",
-          ),
-        );
+        .map((c) => c.id),
+      results,
+    );
     await writeNew(join(directory, "summary.json"), {
       mode: "fault-injection",
       complete,

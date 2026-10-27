@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile, readdir } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RunLedger } from "../apps/desktop/main/run-ledger";
@@ -46,6 +46,40 @@ async function store() {
   return { dir, ledger };
 }
 describe("durable task records", () => {
+  it.each(["corrupt", "unsupported", "wrong-name"])(
+    "loads valid records beside %s evidence while blocking starts",
+    async (kind) => {
+      const { ledger, dir } = await store();
+      await ledger.append(start());
+      const validFile = (await readdir(dir))[0];
+      const validRaw = await readFile(join(dir, validFile), "utf8");
+      const badRaw =
+        kind === "corrupt"
+          ? "broken private diagnostics"
+          : kind === "unsupported"
+            ? JSON.stringify({ ...JSON.parse(validRaw), version: 99 })
+            : validRaw;
+      const badFile = join(dir, "unidentified.json");
+      await writeFile(badFile, badRaw);
+      const restarted = new RunLedger(dir);
+      await restarted.load();
+      expect(restarted.snapshot()).toHaveLength(1);
+      expect(() => restarted.assertHealthy()).toThrow("记录");
+      await expect(restarted.append(start("b"))).rejects.toThrow("记录");
+      expect(await readFile(badFile, "utf8")).toBe(badRaw);
+      expect(restarted.error).not.toContain("private diagnostics");
+    },
+  );
+
+  it("reports unavailable directories while retaining a usable review API", async () => {
+    const { dir } = await store();
+    await rm(dir, { recursive: true });
+    await writeFile(dir, "occupied");
+    const restarted = new RunLedger(dir);
+    await restarted.load();
+    expect(restarted.snapshot()).toEqual([]);
+    expect(() => restarted.assertHealthy()).toThrow("记录");
+  });
   it("keeps device and game runs separate, preserving success before later failure", async () => {
     const { ledger, dir } = await store();
     for (const e of [

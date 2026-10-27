@@ -74,7 +74,7 @@ export function PlannerDraft({ result }: { result: PlannerResult }) {
                   <h4>
                     {index + 1}. {game?.name ?? item.plan.gameId}
                   </h4>
-                  <ol className="agent-step-list">
+                  <ol className="agent-step-list agent-step-chips">
                     {item.plan.skillIds.map((id) => (
                       <li key={id}>
                         {game?.skills.find((s) => s.id === id)?.title ?? id}

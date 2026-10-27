@@ -21,7 +21,7 @@ import {
   type RetentionInventory,
 } from "../scripts/release/prune-releases.mjs";
 
-const root = "D:\\Desktop\\yys\\gamepilot\\release";
+const root = "D:\\Projects\\GamePilot\\release";
 const path = (version: string) => `${root}\\GamePilot-${version}`;
 function inventory(
   versions = ["0.14.49", "0.15.9", "0.15.10", "0.15.11"],

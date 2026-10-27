@@ -1,0 +1,34 @@
+.chat-turn {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
+}
+.chat-scroll {
+  overflow-anchor: none;
+}
+.chat-message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+.chat-message-actions button {
+  color: var(--muted);
+  font-size: var(--font-xs);
+}
+.chat-message-actions button:hover {
+  color: var(--text);
+}
+.chat-user-message .chat-message-actions {
+  justify-content: flex-end;
+}
+.chat-ai-disclaimer {
+  font-size: var(--font-xs);
+  color: var(--muted);
+  margin: var(--space-3) 0;
+}
+.chat-return-bottom {
+  display: block;
+  margin: 0 auto var(--space-3);
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
+}

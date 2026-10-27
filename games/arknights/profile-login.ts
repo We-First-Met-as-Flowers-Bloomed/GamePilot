@@ -53,6 +53,24 @@ export async function verifyArknightsProfileLogin(
       );
     return capture;
   };
+  /**
+   * 点开个人名片后立刻取两帧，很容易跨在入场动画上：两次截图分别落在主页与名片，
+   * 于是被判成"未得到新鲜、同一客户端的双帧主页或个人名片"。
+   * 2026-10-15 lane-a 因此在双账号同时开跑时整条方舟日常报废（08:12，同一秒两条 lane 起跑）。
+   * 这里只**重读**，绝不重新点击：验收条件、UID 比对与安全边界都不变，只是多给现场两次机会。
+   */
+  const readStable = async (): Promise<DeviceInspection> => {
+    let last: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await read();
+      } catch (error) {
+        last = error;
+        signal.throwIfAborted();
+      }
+    }
+    throw last;
+  };
   let capture = await read();
   if (capture.arknights!.page === "home") {
     const [first, second] = capture.arknights!.frames.map(
@@ -73,7 +91,13 @@ export async function verifyArknightsProfileLogin(
     signal.throwIfAborted();
     await navigation.openProfile(second);
     signal.throwIfAborted();
-    capture = await read();
+    // 2026-10-15 实机（lane-a 走游戏模式直跑）：点击好友入口后有时还停在主页——两次截图
+    // 都稳定地是主页，于是 read() 正常返回、代码却直接判「未进入自己的个人名片」，整条
+    // 日常报废。这里只重读、不重新点击：给转场最多四次机会，最终判定仍要求 page === "profile"。
+    for (let attempt = 0; attempt < 4; attempt++) {
+      capture = await readStable();
+      if (capture.arknights?.page === "profile") break;
+    }
   }
 
   let retries = 0;
@@ -91,7 +115,7 @@ export async function verifyArknightsProfileLogin(
     if (retries >= 2)
       throw Error("个人名片未能读到两帧一致的完整 UID，已停止后续任务");
     retries++;
-    capture = await read();
+    capture = await readStable();
   }
   const profileObservedAt = capture.observedAt;
   signal.throwIfAborted();

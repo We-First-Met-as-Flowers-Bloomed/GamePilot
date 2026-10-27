@@ -97,8 +97,8 @@ export async function failureEvidenceUiSmoke(
     const click = async (root, text) => { const b=[...root.querySelectorAll('button')].find(b=>b.textContent.trim()===text); if(!b||b.disabled) throw Error('UI button unavailable: '+text); b.click(); await wait(); };
     await until(()=>document.querySelector('.sidebar-tools'));
     document.querySelector('.sidebar-tools').open = true;
-    await until(()=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='每日计划与开关'));
-    await click(document, '每日计划与开关');
+    await until(()=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='每日任务'));
+    await click(document, '每日任务');
     await until(()=>document.body.textContent.includes(${JSON.stringify(id)}));
     const notice = document.querySelector('.execution-notice'); notice.open = true;
     const item = [...notice.querySelectorAll('li')].find(li=>li.textContent.includes(${JSON.stringify(id)}) && li.querySelector('.failure-evidence'));

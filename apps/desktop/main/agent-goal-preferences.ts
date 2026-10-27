@@ -1,5 +1,6 @@
 import type { DeviceLanes } from "../../../packages/protocol";
-import { validateDeviceLanes } from "../../../packages/protocol";
+import { MAX_DEVICE_LANES, validateDeviceLanes } from "../../../packages/protocol";
+import { agentLaneAlias } from "../../../packages/protocol/lane-alias";
 import type { ArknightsProfiles } from "../../../games/arknights/config";
 import { validateArknightsProfiles } from "../../../games/arknights/config";
 import type { ConfiguredSnapshot } from "../../../packages/agent/configured";
@@ -58,11 +59,11 @@ function inputValue(input: unknown): AgentGoalPreferenceInput {
     "shopping",
     "parameters",
   ]);
-  const ids = (raw: unknown, title: string): string[] => {
+  const ids = (raw: unknown, title: string, max = 32): string[] => {
     if (
       !Array.isArray(raw) ||
       raw.length < 1 ||
-      raw.length > 32 ||
+      raw.length > max ||
       raw.some(
         (id) => typeof id !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(id),
       ) ||
@@ -91,7 +92,7 @@ function inputValue(input: unknown): AgentGoalPreferenceInput {
     throw new AgentToolError("INVALID_INPUT", "奖励偏好只能包含受限布尔开关");
   return {
     environmentRevision: agentString(value.environmentRevision, "环境版本"),
-    laneIds: ids(value.laneIds, "账号"),
+    laneIds: ids(value.laneIds, "账号", MAX_DEVICE_LANES),
     gameId: agentString(value.gameId, "游戏"),
     skillIds: ids(value.skillIds, "任务"),
     ...(value.shopping === undefined
@@ -193,7 +194,7 @@ export class AgentGoalPreferencesService {
         );
         const profile = profiles.profiles[profileIndex];
         if (
-          alias.id !== `lane-${String.fromCharCode(97 + index)}` ||
+          alias.id !== agentLaneAlias(index) ||
           alias.instance !== lane.instance ||
           !profile ||
           alias.arknights.profileId !== `profile-${profileIndex + 1}` ||

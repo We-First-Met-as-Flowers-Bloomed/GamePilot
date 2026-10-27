@@ -1,6 +1,6 @@
 # GamePilot notices
 
-GamePilot 0.15.13 is published as a source-only project at [We-First-Met-as-Flowers-Bloomed/GamePilot](https://github.com/We-First-Met-as-Flowers-Bloomed/GamePilot).
+GamePilot 0.18.8 is published as a source-only project at [We-First-Met-as-Flowers-Bloomed/GamePilot](https://github.com/We-First-Met-as-Flowers-Bloomed/GamePilot).
 
 Original GamePilot source code and original project documentation are offered under **AGPL-3.0-only**. The complete license is in [LICENSE](LICENSE). The license text is reproduced verbatim; its Free Software Foundation copyright notice is not a claim of authorship of GamePilot.
 
@@ -8,7 +8,7 @@ Third-party code, documentation excerpts, dependencies, model files and license 
 
 In particular:
 
-- MaaCore / MaaAssistantArknights v6.17.5 is AGPL-3.0 software. The original GamePilot C# bridge uses its public ABI. Separate-process integration is not presented as an exemption from license obligations.
+- MaaCore / MaaAssistantArknights v6.20.1 is AGPL-3.0 software. The original GamePilot C# bridge uses its public ABI. Separate-process integration is not presented as an exemption from license obligations.
 - MaaFramework v5.13.0 is LGPL-3.0 software. It is distinct from MaaCore.
 - The pinned DeepSeek Harness core and SDK packages are MIT-licensed. Their transitive dependencies have additional licenses, including MPL and LGPL; they are not all covered by MIT.
 - The interface theme references CC Switch at revision `1ee2fdc3a791f1e73476c631c7ab7ce8fac0638f`. Preserve [its MIT notice](docs/CC-Switch-MIT.txt), including Copyright (c) 2025 Jason Young.

@@ -1,3 +1,5 @@
+import { MAX_DEVICE_LANES } from "../protocol";
+
 const object = (
   properties: Record<string, unknown>,
   required = Object.keys(properties),
@@ -57,7 +59,7 @@ export function agentToolSpecs(catalog: {
         lanes: {
           type: "array",
           minItems: 1,
-          maxItems: 8,
+          maxItems: MAX_DEVICE_LANES,
           items: object({
             laneId: string,
             games: {

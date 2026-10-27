@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import type { ExecutionRecord, ExecutionStatus } from "../protocol/execution";
 import type { ExecutionDetail } from "../protocol/execution-detail";
 import type { ExecutionProgress } from "../protocol/execution-progress";
-import { validateTaskRecord, type TaskRecord } from "../protocol/task-record";
+import { readTaskRecord, type TaskRecord } from "../protocol/task-record";
+import { isLegacyCopilotEvidence } from "../../games/arknights/evidence";
 import { projectExecutionDetail } from "../../games/execution-detail";
 import { mergeExecutionProgress } from "../../games/execution-progress";
 import { canonical } from "./files";
@@ -15,6 +16,7 @@ export interface DailyExpectation {
   plans: Plan[];
   slot?: "primary" | "secondary";
   dueTime?: string;
+  bindingHash?: string;
 }
 export interface DailyInspection {
   date: string;
@@ -39,7 +41,7 @@ export interface DailyInspection {
   finishedAt?: string;
   appVersion?: string;
   notes: string[];
-  reviewRequired: true;
+  reviewRequired: boolean;
 }
 const samePlan = (a: unknown, b: Plan) => {
   const p = a as Plan | undefined;
@@ -332,7 +334,7 @@ export function inspectDaily(
     if (candidates.length !== 1) return reject("缺少唯一关联的游戏步骤账本");
     let task: TaskRecord;
     try {
-      task = validateTaskRecord(candidates[0]);
+      task = readTaskRecord(candidates[0]);
     } catch {
       return reject("步骤记录格式无效");
     }
@@ -354,6 +356,12 @@ export function inspectDaily(
     )
       return reject("双游戏时间顺序或结束时间不一致");
     previousEnd = finish;
+    if (
+      task.steps.some((step) => isLegacyCopilotEvidence(step.result?.arknights))
+    )
+      return reject(
+        "旧版作业仅记录原生任务链结束，缺少冻结关卡、逐场三星及前后账号/主页证明，不能作为新版作业验收通过依据",
+      );
     if (plan.gameId === "arknights") {
       if (
         task.steps.some(

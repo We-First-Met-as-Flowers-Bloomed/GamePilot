@@ -1,0 +1,159 @@
+.chat-tool-trace .agent-event-timeline {
+  padding: 8px 0 8px 18px;
+  margin: 0 0 0 7px;
+  border-left: 1px solid var(--line-strong);
+  display: grid;
+  gap: 8px;
+}
+.chat-tool-trace .agent-event-timeline > li {
+  position: relative;
+  min-width: 0;
+}
+.chat-tool-trace .agent-event-timeline > li::before {
+  content: "";
+  position: absolute;
+  left: -23px;
+  top: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  border: 2px solid var(--surface);
+}
+.chat-tool-trace .agent-event-timeline > li[data-status="running"]::before {
+  background: var(--info);
+  animation: trace-pulse 1.5s ease-in-out infinite;
+}
+.chat-tool-trace .agent-event-timeline > li[data-status="succeeded"]::before {
+  background: var(--success);
+}
+.chat-tool-trace .agent-event-timeline > li[data-status="failed"]::before,
+.chat-tool-trace .agent-event-timeline > li[data-status="blocked"]::before {
+  background: var(--danger);
+}
+.chat-tool-trace .agent-event-timeline > li[data-status="unknown"]::before {
+  background: var(--warning);
+}
+.chat-tool-trace .agent-tool-entry .agent-call-details {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  min-width: 0;
+}
+.chat-tool-trace .agent-call-details > summary {
+  padding: 9px 12px;
+  gap: 8px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.chat-tool-trace .agent-call-details > summary .agent-tool-name {
+  flex: 1;
+  min-width: 100px;
+}
+.chat-tool-trace .agent-call-details > summary .agent-tool-status {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: var(--font-xs);
+}
+.chat-tool-trace [data-status="unknown"] .agent-tool-status,
+.chat-tool-trace [data-status="unknown"] summary > svg:first-child {
+  color: var(--warning);
+}
+.chat-tool-trace [data-status="failed"] .agent-tool-status,
+.chat-tool-trace [data-status="blocked"] .agent-tool-status {
+  color: var(--danger);
+}
+.chat-tool-trace .agent-call-details > summary small {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.chat-tool-trace .agent-call-body {
+  padding: 0 12px 12px;
+}
+.agent-call-io pre {
+  overflow: auto;
+  max-height: 260px;
+  font-family: var(--font-mono);
+}
+.agent-record-facts {
+  display: grid;
+  gap: 8px;
+  margin-block: 12px;
+}
+.agent-record-facts > article {
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+}
+.agent-record-facts .agent-host-badge {
+  display: inline-flex;
+  margin: 0 8px 8px 0;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+.agent-record-facts > article[data-recorded-status="unknown"] {
+  border-color: var(--warning-border);
+}
+.agent-record-facts > article[data-recorded-status="unknown"] > strong {
+  color: var(--warning);
+}
+.agent-draft .agent-draft-lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 12px;
+}
+.agent-draft .agent-draft-lane {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.agent-draft .agent-draft-lane h3 .muted {
+  display: block;
+  margin-top: 4px;
+  font: var(--font-xs) var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.agent-draft .agent-step-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  list-style: none;
+}
+.agent-draft .agent-step-chips li {
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  font-size: var(--font-sm);
+}
+.agent-draft .agent-parameters {
+  display: grid;
+  gap: 0;
+}
+.agent-draft .agent-parameters > div {
+  display: grid;
+  grid-template-columns: minmax(70px, 1fr) minmax(0, 1.5fr);
+  gap: 8px;
+  padding-block: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.agent-draft .agent-parameters dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@keyframes trace-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-tool-trace .agent-event-timeline > li[data-status="running"]::before {
+    animation: none;
+  }
+}

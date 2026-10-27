@@ -7,6 +7,8 @@ import type { PauseAfterStepReceipt } from "../../../../packages/protocol/step-c
 import type { AgentEvent } from "../../../../packages/protocol/agent-events";
 import type { ChatTurn } from "../../../../packages/protocol/agent-chat";
 import { AgentRunTrace } from "./AgentRunTrace";
+import { useDistinctValue } from "../hooks/useDistinctValue";
+import { watchSnapshot } from "../hooks/watchSnapshot";
 
 export interface ChatHostAction {
   key: number;
@@ -86,6 +88,7 @@ export function ChatCommandReviewCard({
 }) {
   const [acknowledged, setAcknowledged] = useState(false);
   const card = useRef<HTMLElement>(null);
+  const unchanged = useDistinctValue();
   useEffect(() => {
     if (view.status === "review")
       card.current?.scrollIntoView({ block: "nearest" });
@@ -351,9 +354,11 @@ export default function ChatCommandCards({
     [error, setError] = useState(""),
     [pause, setPause] = useState<PauseAfterStepReceipt>();
   const [pauseRequestId, setPauseRequestId] = useState<string>();
+  const [readError, setReadError] = useState("");
   const scope = useRef(0),
     inFlight = useRef(false),
     handled = useRef(0);
+  const unchanged = useDistinctValue();
   const supported =
     api &&
     typeof api.chatCommands === "function" &&
@@ -367,29 +372,35 @@ export default function ChatCommandCards({
     setPicker(undefined);
     setSelectedId("");
     setError("");
+    setReadError("");
     setPause(undefined);
     setPauseRequestId(undefined);
     if (!supported || !sessionId) return;
-    const read = async () => {
-      try {
-        const values = await api.chatCommands(sessionId);
-        if (scope.current === epoch)
+    const close = watchSnapshot({
+      read: () => api.chatCommands(sessionId),
+      subscribe: (refresh) =>
+        api.onAgentEvent?.((event) => {
+          if (event.kind === "command" && event.sessionId === sessionId)
+            refresh();
+        }) ?? (() => {}),
+      accept: (values) => {
+        if (scope.current === epoch) setReadError("");
+        if (scope.current === epoch && unchanged([sessionId, values]))
           setReviews((previous) =>
             merge(
               previous,
               values.filter((view) => view.sessionId === sessionId),
             ),
           );
-      } catch {
+      },
+      error: () => {
         if (scope.current === epoch)
-          setError("暂时无法读取宿主指令，请核对执行回执。不要重复启动。");
-      }
-    };
-    void read();
-    const timer = setInterval(() => void read(), 5000);
+          setReadError("暂时无法读取宿主指令，请核对执行回执。不要重复启动。");
+      },
+    });
     return () => {
       scope.current++;
-      clearInterval(timer);
+      close();
     };
   }, [api, sessionId]);
   useEffect(() => {
@@ -517,7 +528,15 @@ export default function ChatCommandCards({
     )
     .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
   const displayed = reviews.filter((view) => view.sessionId === sessionId);
-  if (!displayed.length && !picker && !pending && !error && !pause) return null;
+  if (
+    !displayed.length &&
+    !picker &&
+    !pending &&
+    !error &&
+    !readError &&
+    !pause
+  )
+    return null;
   return (
     <section className="chat-host-commands" aria-label="聊天宿主指令">
       {pending && (
@@ -526,9 +545,9 @@ export default function ChatCommandCards({
           正在核对宿主计划与回执…
         </p>
       )}
-      {error && (
+      {(error || readError) && (
         <p className="banner warning" role="alert">
-          <CircleX size={14} /> {error}
+          <CircleX size={14} /> {error || readError}
         </p>
       )}
       {picker && (

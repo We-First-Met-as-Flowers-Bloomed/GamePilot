@@ -1,29 +1,229 @@
-/* CC Switch-inspired semantic light palette; see docs/third-party-notices.md. */
+/* Semantic design tokens. Explicit preference overrides the live system default. */
 :root {
   color-scheme: light;
   font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    "Segoe UI",
+    "Microsoft YaHei",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
   font-synthesis: none;
   font-size: 14px;
   color: var(--text);
-  background: var(--paper);
-  --paper: #f8fafc;
-  --sidebar: #f1f5f9;
+  background: var(--canvas);
+  --canvas: #fafbfc;
   --surface: #ffffff;
-  --surface-muted: #f1f5f9;
-  --text: #1e293b;
-  --muted: #64748b;
-  --line: #e2e8f0;
-  --line-strong: #cbd5e1;
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-light: #eff6ff;
-  --accent-border: #93c5fd;
-  --success: #15803d;
-  --success-light: #f0fdf4;
-  --warning: #92400e;
-  --warning-light: #fffbeb;
-  --danger: #b91c1c;
-  --danger-light: #fef2f2;
-  --shadow-sm: 0 1px 3px #0f172a08;
+  --raised: #ffffff;
+  --sidebar: #f3f4f6;
+  --surface-muted: #eef0f3;
+  --text: #25282e;
+  --text-secondary: #525963;
+  --muted: #626a77;
+  --subtle: #646c78;
+  --line: #dfe3e8;
+  --line-strong: #c5ccd6;
+  --control-border: #7c8594;
+  --accent: #2459ad;
+  --accent-hover: #1b468d;
+  --accent-light: #edf3ff;
+  --accent-border: #a8bfe7;
+  --on-accent: #ffffff;
+  --success: #226b43;
+  --success-light: #edf8f0;
+  --success-border: #a8d0b5;
+  --warning: #85530e;
+  --warning-light: #fff5df;
+  --warning-border: #e5c281;
+  --danger: #a83636;
+  --danger-light: #fff0f0;
+  --danger-border: #e5aeae;
+  --info: #2459ad;
+  --info-light: #edf3ff;
+  --info-border: #a8bfe7;
+  --shadow-color: #17233812;
+  --shadow-strong: #17233824;
+  --overlay: #17233866;
+  --paper: var(--canvas);
+  --font-mono: "Cascadia Code", Consolas, "Courier New", monospace;
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-body: 14px;
+  --font-md: 16px;
+  --font-lg: 20px;
+  --font-title: 28px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 3px var(--shadow-color);
+  --shadow-md: 0 8px 24px var(--shadow-strong);
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+    --canvas: #17191d;
+    --surface: #202329;
+    --raised: #292d34;
+    --sidebar: #1c1f24;
+    --surface-muted: #2c3038;
+    --text: #edf0f5;
+    --text-secondary: #c8cdd6;
+    --muted: #b0b8c5;
+    --subtle: #a4adbb;
+    --line: #3b414c;
+    --line-strong: #545d6b;
+    --control-border: #7d8798;
+    --accent: #9dbfff;
+    --accent-hover: #c2d6ff;
+    --accent-light: #243550;
+    --accent-border: #5979ac;
+    --on-accent: #18253b;
+    --success: #9ed9b3;
+    --success-light: #22382c;
+    --success-border: #4a7658;
+    --warning: #f0cf8e;
+    --warning-light: #3e3322;
+    --warning-border: #8b734c;
+    --danger: #ffb4b4;
+    --danger-light: #42292d;
+    --danger-border: #9b5b65;
+    --info: #9dbfff;
+    --info-light: #243550;
+    --info-border: #5979ac;
+    --shadow-color: #00000033;
+    --shadow-strong: #00000066;
+    --overlay: #00000088;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #17191d;
+  --surface: #202329;
+  --raised: #292d34;
+  --sidebar: #1c1f24;
+  --surface-muted: #2c3038;
+  --text: #edf0f5;
+  --text-secondary: #c8cdd6;
+  --muted: #b0b8c5;
+  --subtle: #a4adbb;
+  --line: #3b414c;
+  --line-strong: #545d6b;
+  --control-border: #7d8798;
+  --accent: #9dbfff;
+  --accent-hover: #c2d6ff;
+  --accent-light: #243550;
+  --accent-border: #5979ac;
+  --on-accent: #18253b;
+  --success: #9ed9b3;
+  --success-light: #22382c;
+  --success-border: #4a7658;
+  --warning: #f0cf8e;
+  --warning-light: #3e3322;
+  --warning-border: #8b734c;
+  --danger: #ffb4b4;
+  --danger-light: #42292d;
+  --danger-border: #9b5b65;
+  --info: #9dbfff;
+  --info-light: #243550;
+  --info-border: #5979ac;
+  --shadow-color: #00000033;
+  --shadow-strong: #00000066;
+  --overlay: #00000088;
+}
+:where(button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+input,
+select,
+textarea {
+  color: var(--text);
+  background-color: var(--surface);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+.button.secondary {
+  background: var(--surface);
+  border-color: var(--line-strong);
+}
+.button.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.button.danger {
+  color: var(--danger);
+  background: var(--danger-light);
+  border-color: var(--danger-border);
+}
+.input {
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+.kbd,
+kbd {
+  font: var(--font-xs) var(--font-mono);
+  background: var(--surface-muted);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  display: inline-block;
+}
+.status-dot.success {
+  background: var(--success);
+}
+.status-dot.warning {
+  background: var(--warning);
+}
+.status-dot.danger {
+  background: var(--danger);
+}
+.appearance-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  font-size: var(--font-sm);
+}
+.appearance-control select {
+  min-width: 160px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+}
+code,
+pre {
+  font-family: var(--font-mono);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -1,6 +1,11 @@
 import type { GameLaneContract } from "../plugin";
 import { compileDailyPlan } from "../routines";
 import { AgentToolError } from "../../packages/protocol/agent";
+import {
+  sameOnmyojiIdentity,
+  plannerOnmyojiIdentity,
+  validateOnmyojiIdentityBinding,
+} from "../../packages/protocol/onmyoji-identity";
 
 export const onmyojiLaneContract: GameLaneContract = {
   planKey: "onmyojiPlan",
@@ -28,6 +33,9 @@ export const onmyojiLaneContract: GameLaneContract = {
     ...lane,
     onmyoji: {
       ...lane.onmyoji,
+      ...(lane.onmyoji.identity
+        ? { identity: validateOnmyojiIdentityBinding(lane.onmyoji.identity) }
+        : {}),
       enabled: true,
       routine: {
         version: 1,
@@ -36,6 +44,14 @@ export const onmyojiLaneContract: GameLaneContract = {
     },
   }),
   assertBinding(alias, lane) {
+    if (
+      !sameOnmyojiIdentity(alias.onmyoji.identity, lane.onmyoji.identity) &&
+      !sameOnmyojiIdentity(alias.onmyoji.identity, plannerOnmyojiIdentity(lane.onmyoji.identity))
+    )
+      throw new AgentToolError(
+        "ENVIRONMENT_CHANGED",
+        "阴阳师身份绑定已变化，请重新规划",
+      );
     if (!alias.onmyoji.enabled || !lane.onmyoji.enabled)
       throw new AgentToolError(
         "ENVIRONMENT_CHANGED",

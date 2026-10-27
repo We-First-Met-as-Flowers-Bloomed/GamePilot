@@ -4,6 +4,9 @@ import type { Frame, GameDevice } from "../packages/runtime/device";
 import illustrationFirst from "./fixtures/onmyoji/mail-illustration-first.json";
 import illustrationLast from "./fixtures/onmyoji/mail-illustration-last.json";
 import kirinCompleted from "./fixtures/onmyoji/kirin-completed-20261008.json";
+import guildRealm from "./fixtures/onmyoji/guild-realm-20261014.json";
+import { isCourtyard, isGuildRealm } from "../games/onmyoji/policy";
+import { validOnmyojiEvidence } from "../packages/protocol/onmyoji-evidence";
 const frame = (...a: [string, number, number][]): Frame => ({
   width: 1920,
   height: 1080,
@@ -33,6 +36,7 @@ function harness(frames: Frame[]) {
     packages: vi.fn(async () => ["com.netease.onmyoji.test"]),
     isAppRunning: vi.fn(async () => true),
     matchTemplate: vi.fn(async () => null),
+    matchFeatures: vi.fn(async () => null),
   };
   const logs: string[] = [];
   return {
@@ -47,6 +51,78 @@ function harness(frames: Frame[]) {
 }
 describe("daily state machine", () => {
   const courtyard = frame(["探", 840, 208], ["加成", 546, 49]);
+  it("dismisses a two-frame completed realm battle before login without starting another battle", async () => {
+    const settled = frame(
+      ["胜利", 1052, 136],
+      ["本次评分", 1290, 920],
+      ["点击屏幕继续", 840, 1020],
+    );
+    const { adapter, d, logs } = harness([settled, settled, map, map]);
+    const result = await adapter.login(new AbortController().signal);
+    expect(result.status).toBe("succeeded");
+    expect(result.onmyoji).toBeUndefined();
+    expect(d.click).toHaveBeenCalledExactlyOnceWith(
+      960,
+      1030,
+      expect.anything(),
+    );
+    expect(d.startApp).not.toHaveBeenCalled();
+    expect(logs.some((s) => s.includes("此前战斗"))).toBe(true);
+  });
+  it("stops after one dismissal if the same realm settlement remains", async () => {
+    const settled = frame(
+      ["胜利", 1052, 136],
+      ["本次评分", 1290, 920],
+      ["点击屏幕继续", 840, 1020],
+    );
+    const { adapter, d } = harness([settled]);
+    await expect(adapter.login(new AbortController().signal)).rejects.toThrow(
+      "结算",
+    );
+    expect(d.click).toHaveBeenCalledTimes(1);
+  });
+  it.each([true, false])(
+    "closes the existing realm reward page during login (victory first=%s)",
+    async (victoryFirst) => {
+      const settled = frame(
+        ["胜利", 1052, 136],
+        ["本次评分", 1290, 920],
+        ["点击屏幕继续", 840, 1020],
+      );
+      const reward = frame(
+        ["通关时间00:47", 220, 810],
+        ["1980", 350, 370],
+        ["点击屏幕继续", 840, 1020],
+      );
+      const { adapter, d } = harness([
+        ...(victoryFirst ? [settled, settled] : []),
+        reward,
+        reward,
+        map,
+        map,
+      ]);
+      await expect(
+        adapter.login(new AbortController().signal),
+      ).resolves.toMatchObject({ status: "succeeded" });
+      expect(d.click).toHaveBeenCalledTimes(victoryFirst ? 2 : 1);
+      expect(d.startApp).not.toHaveBeenCalled();
+    },
+  );
+  it("does not dismiss a realm reward underneath an unknown confirmation", async () => {
+    const reward = frame(
+      ["通关时间00:47", 220, 810],
+      ["1980", 350, 370],
+      ["点击屏幕继续", 840, 1020],
+      ["是否购买挑战次数", 700, 430],
+      ["取消", 750, 610],
+      ["确认", 1080, 610],
+    );
+    const { adapter, d } = harness([reward]);
+    await expect(adapter.login(new AbortController().signal)).rejects.toThrow(
+      "确认",
+    );
+    expect(d.click).not.toHaveBeenCalled();
+  });
   it("reconnects a disconnected courtyard before accepting login", async () => {
     const disconnected = frame(
       ["探", 840, 208],
@@ -390,6 +466,35 @@ describe("daily state machine", () => {
     ["魂玉屋", 1490, 1024],
     ["礼包屋", 1700, 1026],
   );
+
+  it("switches back to the daily tab when the chores page opens on an event tab", async () => {
+    const eventTasks = frame(
+      ["庭院事务", 400, 61],
+      ["日常", 1700, 205],
+      ["诞生庆典", 300, 130],
+    );
+    const tasks = frame(
+      ["庭院事务", 400, 61],
+      ["一键", 1690, 875],
+      ["完成", 1676, 950],
+    );
+    const completed = frame(
+      ["庭院事务", 400, 61],
+      ["每日一签", 590, 428],
+      ["已完成", 1478, 406],
+    );
+    const { adapter, d } = harness([courtyard, eventTasks, tasks, completed]);
+    vi.mocked(d.matchTemplate).mockResolvedValue({
+      box: [1470, 548, 68, 70],
+      score: 0.99,
+    });
+    await adapter.checkIn(new AbortController().signal);
+    expect(vi.mocked(d.click).mock.calls.map(([x, y]) => [x, y])).toEqual([
+      [1504, 583],
+      [1750, 225],
+      [1740, 940],
+    ]);
+  });
 
   it("closes the compact sign reward before confirming daily check-in", async () => {
     const tasks = frame(
@@ -1429,6 +1534,57 @@ describe("daily state machine", () => {
     await adapter.realmRaid(new AbortController().signal);
   });
 
+  it.each([375, 512, 651])(
+    "opens Kirin from a verified guild activity row at y=%s",
+    async (rowY) => {
+      const guild = frame(
+        ["集体任务04:24", 12, 240],
+        ["寮信息", 1742, 1010],
+        ["狩猎战", 14, rowY],
+        ["狩猎战", 1224, 329],
+      );
+      const hunt = frame(
+        ["狩猎战", 226, 29],
+        ["雷麒麟", 530, 313],
+        ["大人未挑战", 102, 561],
+        ["挑战", 1700, 903],
+      );
+      const { adapter, d } = harness([
+        courtyard,
+        guild,
+        hunt,
+        frame(["准备", 1696, 843]),
+        frame(["胜利", 1052, 136], ["本次伤害", 848, 500]),
+        courtyard,
+      ]);
+      expect(isGuildRealm(guild)).toBe(true);
+      await expect(
+        adapter.guildKirin(
+          new AbortController().signal,
+          new Date("2026-10-26T11:36:02Z"),
+        ),
+      ).resolves.toMatchObject({ status: "succeeded", goalSatisfied: true });
+      expect(d.click).toHaveBeenCalledWith(64, rowY + 20, expect.anything());
+      expect(d.click).not.toHaveBeenCalledWith(1274, 349, expect.anything());
+    },
+  );
+
+  it("does not use a Kirin label outside the guild activity list", async () => {
+    const guild = frame(
+      ["集体任务04:24", 12, 240],
+      ["寮信息", 1742, 1010],
+      ["狩猎战", 1224, 329],
+    );
+    const { adapter, d } = harness([courtyard, guild]);
+    await expect(
+      adapter.guildKirin(
+        new AbortController().signal,
+        new Date("2026-10-26T11:36:02Z"),
+      ),
+    ).rejects.toThrow("寮境未显示狩猎战入口");
+    expect(d.click).not.toHaveBeenCalledWith(1274, 349, expect.anything());
+  });
+
   it("completes one verified guild Kirin challenge without retry", async () => {
     const guild = frame(["阴阳寮", 934, 35], ["狩猎战", 14, 375]);
     const shrine = frame(["神社", 1770, 545], ["狩猎战", 328, 639]);
@@ -1650,64 +1806,43 @@ describe("daily state machine", () => {
     ).toHaveLength(2);
   });
 
-  it("submits exactly the remaining collective tasks and claims guild reward", async () => {
-    const guild = frame(["阴阳寮", 934, 35], ["狩猎战", 14, 375]);
-    const shrine = frame(
-      ["神社", 1770, 545],
-      ["狩猎战", 328, 639],
-      ["集体任务", 310, 266],
+  it("claims the collective-task reward from the guild realm and never touches the submit card", async () => {
+    // 2026-10-15 实机适配：新版走 寮境 → 集体任务面板；只领已获得的奖励，
+    // 「提交」（提供 N 阶式神、会消耗式神）不自动做。
+    const withGuildEntry = frame(["加成", 546, 49], ["阴阳寮", 806, 984]);
+    const realm = frame(
+      ["集体任务", 100, 260],
+      ["狩猎战", 100, 400],
+      ["寮信息", 1744, 1010],
     );
-    const tasks = frame(
+    const claimable = frame(
       ["集体任务", 814, 65],
-      ["提供N阶式神1个", 244, 286],
-      ["今日已完成0次", 320, 629],
+      ["领取奖励", 878, 720],
       ["提交", 410, 718],
-      ["领取奖励", 876, 716],
-      ["今日已完成次数10/30", 1410, 850],
+      ["今日已完成次数10/30", 1420, 851],
     );
-    const selection = frame(
-      ["隐藏已提升技能式神", 336, 657],
-      ["可提交的N阶式神不包括呱太", 1348, 686],
-    );
-    const confirm = frame(
-      ["将提交20次任务", 794, 43],
-      ["取消", 700, 520],
-      ["提交", 1100, 520],
-    );
-    const reward = frame(["获得奖励", 720, 260]);
-    const doneWithClaim = frame(
+    const claimed = frame(
       ["集体任务", 814, 65],
-      ["领取奖励", 876, 716],
-      ["已达上限", 884, 720],
-      ["今日已完成次数30/30", 1410, 850],
-    );
-    const done = frame(
-      ["集体任务", 814, 65],
-      ["已达上限", 884, 720],
-      ["今日已完成次数30/30", 1410, 850],
+      ["进行中", 900, 718],
+      ["提交", 410, 718],
+      ["今日已完成次数10/30", 1420, 851],
     );
     const { adapter, d, logs } = harness([
+      withGuildEntry,
+      realm,
+      claimable,
+      claimed,
+      realm,
       courtyard,
-      guild,
-      shrine,
-      tasks,
-      selection,
-      confirm,
-      reward,
-      { ...doneWithClaim, texts: [...doneWithClaim.texts, ...reward.texts] },
-      doneWithClaim,
-      reward,
-      done,
-      shrine,
-      guild,
       courtyard,
     ]);
-    await adapter.guildQuest(new AbortController().signal);
-    expect(d.longPress).toHaveBeenCalledWith(330, 850, 1000, expect.anything());
-    expect(
-      vi.mocked(d.click).mock.calls.filter(([x, y]) => x === 1700 && y === 900),
-    ).toHaveLength(3);
-    expect(logs.at(-1)).toContain("我爱我寮");
+    const result = await adapter.guildQuest(new AbortController().signal);
+    expect(result?.summary).toContain("10/30");
+    expect(result?.summary).toContain("领取 1 项奖励");
+    expect(result?.summary).toContain("未自动提交");
+    // 提交卡是玩家的取舍：既不长按批量选择，也不点提交按钮。
+    expect(d.longPress).not.toHaveBeenCalled();
+    expect(logs.some((line) => line.includes("不自动提交"))).toBe(true);
   });
 
   it("claims Hana only from the verified page", async () => {
@@ -2153,14 +2288,66 @@ describe("daily state machine", () => {
     ).rejects.toThrow("战斗超时");
     expect(logs.some((s) => s.includes("已识别战斗胜利"))).toBe(false);
   });
-  it("does not start a challenge when difficulty is uncertain", async () => {
-    const normal = detail("万里长城", 0);
-    normal.texts.push({ text: "极", box: [408, 174, 68, 60], score: 0.99 });
-    const { adapter, d } = harness([normal, frame(["11", 490, 280])]);
+  it("never taps the challenge button when the normal difficulty cannot be confirmed", async () => {
+    // 难度闸门是**唯一**允许阻止挑战的条件：读不到「极」徽标（= 普通已选中）就绝不点挑战。
+    const noGlyph = detail("万里长城", 0);
+    const { adapter, d } = harness([noGlyph, noGlyph, noGlyph]);
     await expect(
       adapter.battleCurrent(new AbortController().signal),
-    ).rejects.toThrow("1 级");
-    expect(vi.mocked(d.click).mock.calls.every(([x]) => x < 1000)).toBe(true);
+    ).rejects.toThrow("无法确认普通难度模式");
+    // 挑战按钮在 x≥1600 的区域：整场没有一次点击落在那里。
+    expect(vi.mocked(d.click).mock.calls.every(([x]) => x < 1600)).toBe(true);
+  });
+  it("accepts an art-glyph difficulty tab through template matching", async () => {
+    // 2026-10-15 鸟巢实测：普通难度下页签显示「极」，但整页 OCR（含 0.3 阈值）读不出该字形，
+    // 旧代码直接放弃挑战。模板兜底后应当通过难度闸门。
+    const artGlyph = detail("鸟巢", 0);
+    const { adapter, d } = harness([
+      artGlyph,
+      frame(),
+      artGlyph,
+      frame(["准备", 1710, 850]),
+      frame(["战斗", 960, 540]),
+    ]);
+    vi.mocked(d.matchTemplate).mockImplementation(async (template) =>
+      template === "difficulty-extreme.png"
+        ? { box: [408, 174, 68, 60], score: 0.95 }
+        : null,
+    );
+    await expect(
+      adapter.battleCurrent(new AbortController().signal),
+    ).rejects.toThrow("战斗超时");
+    expect(vi.mocked(d.matchTemplate)).toHaveBeenCalledWith(
+      "difficulty-extreme.png",
+      [380, 150, 120, 100],
+      0.8,
+      expect.anything(),
+    );
+  });
+  it("reads the boss level without gating on it and never changes it", async () => {
+    // 鬼王等级是账号自己的设置（lane-a 1 级、lane-b 60 级）：技能只读不改，
+    // 也不能因为"不是 1 级"就停——2026-10-15 就是这个硬要求在 lane-b 上卡死了整条日常。
+    const artGlyph = detail("鸟巢", 0);
+    const { adapter, d, logs } = harness([
+      artGlyph,
+      frame(["60", 490, 280]),
+      artGlyph,
+      frame(["准备", 1710, 850]),
+      frame(["战斗", 960, 540]),
+    ]);
+    vi.mocked(d.matchTemplate).mockImplementation(async (template) =>
+      template === "difficulty-normal.png"
+        ? null
+        : { box: [490, 280, 53, 61], score: 0.92 },
+    );
+    await expect(
+      adapter.battleCurrent(new AbortController().signal),
+    ).rejects.toThrow("战斗超时");
+    expect(logs.some((message) => message.includes("鬼王等级 60"))).toBe(true);
+    // 没有再点过等级选择器（旧的减号在 (277,425)）。
+    expect(vi.mocked(d.click).mock.calls.some(([x, y]) => x === 277 && y === 425)).toBe(
+      false,
+    );
   });
   it.each([true, false])(
     "recognizes a resumed chores page only with its action controls (verified=%s)",
@@ -2240,5 +2427,392 @@ describe("daily state machine", () => {
     const { d, adapter } = harness([frame(["需要密码", 600, 400])]);
     await expect(adapter.login(new AbortController().signal)).rejects.toThrow();
     expect(d.click).not.toHaveBeenCalled();
+  });
+
+  describe("oboroguruma", () => {
+    const explorationWithEntry = frame(
+      ["地域鬼王", 900, 950],
+      ["胧车", 300, 700],
+    );
+    const explorationOnly = frame(["地域鬼王", 900, 950]);
+    const cardDialog = frame(
+      ["八岐大蛇·悲鸣", 500, 100],
+      ["是否自动上阵之前通关的式神并佩戴御魂", 700, 350],
+      ["重新配置", 650, 620],
+      ["确定", 1100, 620],
+      ["下一步", 900, 950],
+    );
+    const cardFirstPage = frame(
+      ["八岐大蛇·悲鸣", 500, 100],
+      ["下一步", 900, 950],
+    );
+    const cardSecondPage = (count?: string) =>
+      frame(
+        ["八岐大蛇·悲鸣", 500, 100],
+        ["加成", 100, 300],
+        ["出发", 900, 900],
+        ...(count ? [[count, 500, 830] as [string, number, number]] : []),
+      );
+    const buffPanel = frame(
+      ["觉醒副本掉落额外的觉醒材料", 150, 100],
+      ["22天", 420, 100],
+      ["八岐大蛇掉落额外的御魂材料", 150, 145],
+      ["14天", 420, 145],
+      ["战斗胜利获得的金币增加100%", 150, 190],
+      ["3天", 420, 190],
+      ["战斗胜利获得的经验增加100%", 150, 235],
+      ["2天", 420, 235],
+      ["战斗胜利获得的经验增加50%", 150, 280],
+      ["6天", 420, 280],
+    );
+    const settlement = frame(
+      ["八岐大蛇·悲鸣探索结束（1/1)", 682, 25],
+      ["探索完成", 762, 83],
+      ["探索圆满完成，共探索八岐大蛇悲鸣1次", 620, 256],
+      // 2026-10-15 实机位置：确认按钮在右边，不在中间的旧 ROI 里。
+      ["确认", 1502, 831],
+    );
+
+    it("confirms the auto-equip dialog, applies the Yamata buff and departs at max count", async () => {
+      const { adapter, d, logs } = harness([
+        courtyard,
+        courtyard,
+        explorationWithEntry,
+        cardDialog,
+        cardDialog,
+        cardFirstPage,
+        cardSecondPage(),
+        buffPanel,
+        cardSecondPage(),
+        cardSecondPage("60/60"),
+        explorationOnly,
+        explorationOnly,
+      ]);
+      vi.mocked(d.matchTemplate).mockImplementation(async (name) =>
+        name === "oboroguruma-max.png"
+          ? { box: [630, 760, 50, 45], score: 0.95 }
+          : null,
+      );
+      const result = await adapter.oboroguruma(new AbortController().signal);
+      expect(d.click).toHaveBeenCalledWith(1150, 640, expect.anything());
+      expect(d.click).toHaveBeenCalledWith(544, 165, expect.anything());
+      expect(d.click).toHaveBeenCalledWith(655, 782.5, expect.anything());
+      expect(d.click).toHaveBeenCalledWith(950, 920, expect.anything());
+      expect(result).toMatchObject({
+        status: "succeeded",
+        summary: "胧车挂机已出发（60/60 次），御魂配置与八岐大蛇加成已核对",
+      });
+      expect(logs.at(-2)).toContain("60/60");
+      const evidence = (result as { onmyoji?: { effects: unknown[] } })
+        .onmyoji;
+      expect(evidence?.effects).toHaveLength(3);
+    });
+
+    it("falls back to feature matching when the entrance label resists OCR, then reports the day as not open", async () => {
+      const { adapter, d } = harness([courtyard, courtyard, explorationOnly]);
+      vi.mocked(d.matchFeatures!).mockResolvedValue({
+        box: [60, 760, 120, 140],
+        score: 12,
+      });
+      // 2026-10-15：兜底点击仍然照做（模板是唯一能读到美术字入口的办法），
+      // 但探索页上确实找不到入口时返回「未开放」的跳过，而不是抛错——
+      // 日常里一步抛错会中断整条 lane、后面的步骤都不再执行。
+      const result = await adapter.oboroguruma(new AbortController().signal);
+      expect(d.click).toHaveBeenCalledWith(120, 830, expect.anything());
+      expect(result).toMatchObject({
+        status: "skipped",
+        skipReason: "not-open",
+        goalSatisfied: false,
+      });
+      expect(result.summary).toContain("未开始挂机");
+      // App 侧会校验这份证据：not-submitted 阶段必须没有任何 effect，否则整步被判无效。
+      expect(validOnmyojiEvidence(result.onmyoji)).toBe(true);
+      expect(result.onmyoji?.phase).toBe("not-submitted");
+    });
+
+    it("skips the dialog when the soul configuration already exists", async () => {
+      const { adapter, d } = harness([
+        courtyard,
+        courtyard,
+        explorationWithEntry,
+        cardFirstPage,
+        cardFirstPage,
+        cardSecondPage(),
+        buffPanel,
+        cardSecondPage(),
+        cardSecondPage("60/60"),
+        explorationOnly,
+        explorationOnly,
+      ]);
+      vi.mocked(d.matchTemplate).mockImplementation(async (name) =>
+        name === "oboroguruma-max.png"
+          ? { box: [630, 760, 50, 45], score: 0.95 }
+          : null,
+      );
+      await adapter.oboroguruma(new AbortController().signal);
+      expect(
+        vi.mocked(d.click).mock.calls.some(([x, y]) => x === 1150 && y === 640),
+      ).toBe(false);
+    });
+
+    it("departs with the available count when the max button cannot raise it", async () => {
+      // 2026-10-15 实机：点了 ⇈ 也只拿到 1/60（上限 60、资源足够），旧代码因此
+      // 把正常状态当异常、白白停一天。现在按实际次数出发，并把次数如实写进结果。
+      const { adapter, d, logs } = harness([
+        courtyard,
+        courtyard,
+        explorationWithEntry,
+        cardFirstPage,
+        cardFirstPage,
+        cardSecondPage(),
+        buffPanel,
+        cardSecondPage(),
+        cardSecondPage("3/60"),
+        explorationOnly,
+        explorationOnly,
+      ]);
+      vi.mocked(d.matchTemplate).mockImplementation(async (name) =>
+        name === "oboroguruma-max.png"
+          ? { box: [630, 760, 50, 45], score: 0.95 }
+          : null,
+      );
+      const result = await adapter.oboroguruma(new AbortController().signal);
+      expect(
+        vi.mocked(d.click).mock.calls.some(([x, y]) => x === 950 && y === 920),
+      ).toBe(true);
+      expect(result).toMatchObject({ status: "succeeded" });
+      expect(result.summary).toContain("3/60");
+      expect(result.summary).toContain("未到上限按实际次数");
+      expect(logs.some((line) => line.includes("按实际次数出发"))).toBe(true);
+    });
+
+    it("offers no departure when the count is zero", async () => {
+      const { adapter, d } = harness([
+        courtyard,
+        courtyard,
+        explorationWithEntry,
+        cardFirstPage,
+        cardFirstPage,
+        cardSecondPage(),
+        buffPanel,
+        cardSecondPage(),
+        cardSecondPage("0/60"),
+      ]);
+      vi.mocked(d.matchTemplate).mockImplementation(async (name) =>
+        name === "oboroguruma-max.png"
+          ? { box: [630, 760, 50, 45], score: 0.95 }
+          : null,
+      );
+      const result = await adapter.oboroguruma(new AbortController().signal);
+      expect(result).toMatchObject({
+        status: "skipped",
+        skipReason: "unavailable",
+        goalSatisfied: false,
+      });
+      expect(result.summary).toContain("0/60");
+      // 这一步已经按下过加成与次数按钮，证据必须是 submitted 且有 effect。
+      expect(validOnmyojiEvidence(result.onmyoji)).toBe(true);
+      expect(
+        vi.mocked(d.click).mock.calls.some(([x, y]) => x === 950 && y === 920),
+      ).toBe(false);
+    });
+
+    it("declines the post-depart buff purchase instead of failing the run", async () => {
+      // 2026-10-15 实机：点出发后游戏追问「当前没有使用御魂掉落加成，是否打开加成？」
+      // ——这是出发之后的加购询问，替玩家点「取消」，挂机照常开始。
+      const offer = frame(
+        ["当前没有使用御魂掉落加成，是否", 660, 430],
+        ["为阴阳师大人打开加成？", 750, 474],
+        ["取消", 740, 631],
+        ["确定", 1082, 631],
+      );
+      const { adapter, d, logs } = harness([
+        courtyard,
+        courtyard,
+        explorationWithEntry,
+        cardDialog,
+        cardDialog,
+        cardFirstPage,
+        cardSecondPage(),
+        buffPanel,
+        cardSecondPage(),
+        cardSecondPage("60/60"),
+        offer,
+        explorationOnly,
+        explorationOnly,
+      ]);
+      vi.mocked(d.matchTemplate).mockImplementation(async (name) =>
+        name === "oboroguruma-max.png"
+          ? { box: [630, 760, 50, 45], score: 0.95 }
+          : null,
+      );
+      const result = await adapter.oboroguruma(new AbortController().signal);
+      // 点「取消」（不是「确定」），并且绝不重复点出发。
+      const clicks = vi.mocked(d.click).mock.calls.map(([x, y]) => [x, y]);
+      expect(clicks).toContainEqual([790, 651]);
+      expect(clicks.some(([x]) => x === 1082)).toBe(false);
+      expect(
+        clicks.filter(([x, y]) => x === 950 && y === 920),
+      ).toHaveLength(1);
+      expect(result).toMatchObject({ status: "succeeded" });
+      expect(logs.some((line) => line.includes("已拒绝"))).toBe(true);
+    });
+
+    it("confirms a finished grind settlement instead of starting again", async () => {
+      const { adapter, d, logs } = harness([
+        courtyard,
+        courtyard,
+        settlement,
+        explorationOnly,
+        explorationOnly,
+      ]);
+      const result = await adapter.oboroguruma(new AbortController().signal);
+      expect(d.click).toHaveBeenCalledWith(1552, 851, expect.anything());
+      expect(result).toMatchObject({
+        status: "skipped",
+        skipReason: "already-completed",
+      });
+      expect(logs.some((m) => m.includes("结算"))).toBe(true);
+    });
+
+    it("reports the day as not open when the entry never appears", async () => {
+      const { adapter } = harness([
+        courtyard,
+        courtyard,
+        explorationOnly,
+        explorationOnly,
+      ]);
+      const result = await adapter.oboroguruma(new AbortController().signal);
+      expect(result).toMatchObject({
+        status: "skipped",
+        skipReason: "not-open",
+        goalSatisfied: false,
+      });
+    });
+  });
+
+  describe("observed 2026-10-14 guild realm layout", () => {
+    // Filtered real OCR of the failed 12:57 login observation (frame archived as
+    // .dsh-onmyoji-lastscreen-1257.png; probe used the App's own MaaFramework
+    // OCR resource). The page is the updated 阴阳寮 "寮境": bottom bar is
+    // 神社/祈愿/结界/寮信息 art labels, only 寮信息 stays readable.
+    const realm = guildRealm as Frame;
+    const courtyard = frame(["探", 840, 208], ["加成", 546, 49]);
+
+    it("recognizes the guild realm as a page to leave, not as the courtyard", () => {
+      expect(isGuildRealm(realm)).toBe(true);
+      expect(isCourtyard(realm)).toBe(false);
+    });
+
+    it("escapes the guild realm before accepting the login courtyard", async () => {
+      const { adapter, d } = harness([realm, courtyard, courtyard]);
+      const result = await adapter.login(new AbortController().signal);
+      expect(result).toMatchObject({ status: "succeeded" });
+      expect(d.click).toHaveBeenNthCalledWith(1, 75, 60, expect.anything());
+    });
+
+    it("escapes the guild realm before opening chores", async () => {
+      const layout = frame(
+        ["加成", 550, 50],
+        ["探索", 984, 204],
+        ["召唤", 1582, 258],
+      );
+      const completed = frame(
+        ["庭院事务", 400, 61],
+        ["每日一签", 590, 238],
+        ["已完成", 1478, 214],
+        ["一键", 1690, 875],
+        ["完成", 1676, 950],
+      );
+      const { adapter, d } = harness([
+        realm,
+        layout,
+        layout,
+        completed,
+        completed,
+      ]);
+      await adapter.checkIn(new AbortController().signal);
+      expect(d.click).toHaveBeenNthCalledWith(1, 75, 60, expect.anything());
+    });
+
+    it("leaves the guild realm when returning from the foster flow", async () => {
+      // 2026-10-14 21:26 实机失败：寄养跑完后停在寮境，leaveToCourtyard 不认这页，
+      // 干等到 24 次上限后报「结界寄养流程未能返回庭院」。
+      let current: Frame = realm;
+      const dev: GameDevice = {
+        observe: vi.fn(async () => current),
+        click: vi.fn(async (x: number, y: number) => {
+          if (x === 60 && y === 60) current = courtyard;
+        }),
+        swipe: vi.fn(async () => {}),
+        longPress: vi.fn(async () => {}),
+        colorSlots: vi.fn(async () => []),
+        startApp: vi.fn(async () => {}),
+        packages: vi.fn(async () => ["com.netease.onmyoji.test"]),
+        isAppRunning: vi.fn(async () => true),
+        matchTemplate: vi.fn(async () => null),
+      };
+      const daily = new OnmyojiDaily(
+        dev,
+        () => {},
+        async () => {},
+      );
+      const internal = daily as unknown as {
+        leaveToCourtyard(signal: AbortSignal): Promise<void>;
+      };
+      await internal.leaveToCourtyard(new AbortController().signal);
+      expect(dev.click).toHaveBeenCalledWith(60, 60, expect.anything());
+    });
+
+    it("taps the observed 地域鬼王 slot when the new exploration bar merges into one hit", async () => {
+      // Real OCR of the 2026-10-14 exploration page: the whole bottom strip is
+      // one hit, so no standalone 地域鬼王 box exists to tap.
+      const exploration = frame([
+        "式神委派秘闻副本地域鬼王妖气探索英杰试炼契灵之境六道之",
+        642,
+        1022,
+      ]);
+      const { adapter, d } = harness([exploration]);
+      await expect(
+        adapter.realmRaid(new AbortController().signal),
+      ).rejects.toThrow("进入地域鬼王失败");
+      expect(d.click).toHaveBeenNthCalledWith(1, 987, 960, expect.anything());
+    });
+
+    it("uses the observed bottom-bar slot when 花合战 merges with the 商店 label", async () => {
+      const merged = frame(
+        ["加成", 546, 49],
+        ["探索", 984, 204],
+        ["商店“花合战", 984, 974],
+      );
+      const { adapter, d } = harness([merged]);
+      await expect(
+        adapter.hanaClaim(new AbortController().signal),
+      ).rejects.toThrow();
+      expect(d.click).toHaveBeenNthCalledWith(1, 1192, 1002, expect.anything());
+    });
+
+    it("opens 狩猎战 from the guild realm row instead of the legacy 神社 slot", async () => {
+      // 2026-10-14 实机：寮境左侧「狩猎战」行 → 狩猎战页显示「狩猎成功 / 已挑战」。
+      const layout = frame(["加成", 546, 49], ["阴阳寮", 806, 970]);
+      const hunt = frame(
+        ["狩猎战", 225, 29],
+        ["水麒麟", 530, 311],
+        ["已挑战", 1695, 909],
+        ["狩猎成功", 1160, 800],
+      );
+      const { adapter, d } = harness([layout, realm, hunt, hunt, layout]);
+      const result = await adapter.guildKirin(
+        new AbortController().signal,
+        new Date("2026-10-14T03:00:00Z"),
+      );
+      expect(result).toMatchObject({
+        status: "skipped",
+        skipReason: "already-completed",
+      });
+      const clicks = vi.mocked(d.click).mock.calls.map(([x, y]) => [x, y]);
+      expect(clicks).toContainEqual([79, 398.5]);
+      expect(clicks).not.toContainEqual([1350, 985]);
+    });
   });
 });

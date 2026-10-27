@@ -12,7 +12,8 @@ export const gameGoalToolNames = [
   "save_daily_preference",
 ] as const;
 export type GameGoalToolName = (typeof gameGoalToolNames)[number];
-export type AgentRuntimeToolName = AgentToolName | GameGoalToolName;
+export type AgentRuntimeToolName =
+  AgentToolName | GameGoalToolName | "search_copilot" | "prepare_copilot";
 /** Only ChatService constructs this from an already-persisted, current user turn. */
 export interface AgentRuntimePrincipal {
   sessionId: string;

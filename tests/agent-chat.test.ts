@@ -432,3 +432,53 @@ it("rejects unknown fields and invalid input without model calls", async () => {
   ).rejects.toMatchObject({ code: "CHAT_SESSION_MISMATCH" });
   expect(s.run).not.toHaveBeenCalled();
 });
+
+it("rejects malformed historical Copilot review before card rendering while preserving store diagnostics and original data", async () => {
+  const s = setup(),
+    { complete } = await send(s, "历史作业", "configured"),
+    stored = structuredClone(complete);
+  stored.sessions[0].turns[0].planner.result!.copilot = {} as never;
+  const save = vi.fn(async (_view: ChatView) => {}),
+    restored = new ChatService({
+      planner: s.planner,
+      save,
+      load: async () => stored,
+    });
+  const view = await restored.snapshot();
+  expect(view.error).toContain("会话");
+  expect(view.sessions).toEqual([]);
+  expect(save).not.toHaveBeenCalled();
+  expect(stored.sessions[0].turns[0].planner.result!.copilot).toEqual({});
+});
+
+it("restores a valid expired Copilot review as inert history without deleting the result or replaying execution", async () => {
+  const s = setup(),
+    { complete } = await send(s, "旧作业清单", "configured"),
+    stored = structuredClone(complete);
+  const review = {
+    version: 1 as const,
+    preparedId: "12345678-1234-4234-8234-123456789abc",
+    planHash: "a".repeat(64),
+    revision: "b".repeat(64),
+    laneName: "槽位 1",
+    uidTail: "1234",
+    clientType: "Official" as const,
+    stage: "1-7",
+    count: 1,
+    expiresAt: "2026-01-01T00:00:00.000Z",
+    jobs: [{ id: 1, title: "fixture", sha256: "c".repeat(64) }],
+  };
+  stored.sessions[0].turns[0].planner.result!.copilot = review;
+  const fresh = setup(),
+    save = vi.fn(async (_view: ChatView) => {}),
+    restored = new ChatService({
+      planner: fresh.planner,
+      save,
+      load: async () => stored,
+    });
+  const view = await restored.snapshot();
+  expect(view.error).toBeUndefined();
+  expect(view.sessions[0].turns[0].planner.result!.copilot).toEqual(review);
+  expect(fresh.run).not.toHaveBeenCalled();
+  expect(save).not.toHaveBeenCalled();
+});

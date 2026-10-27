@@ -1,0 +1,57 @@
+.ark-copilot-options {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.ark-copilot-options > summary,
+.ark-copilot-details > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ark-copilot-details {
+  margin: 16px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.ark-copilot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+  margin: 16px 0;
+}
+.ark-copilot-options .ark-copilot-grid label {
+  margin: 0;
+  min-width: 0;
+}
+.ark-copilot-entry {
+  min-width: 0;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.ark-copilot-entry legend {
+  font-size: 13px;
+  padding: 0 4px;
+}
+.ark-copilot-options .ark-copilot-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ark-copilot-options .ark-copilot-checkbox input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: none;
+}
+.ark-copilot-actions {
+  display: flex;
+  gap: 12px;
+}
+@media (max-width: 700px) {
+  .ark-copilot-grid {
+    grid-template-columns: 1fr;
+  }
+}

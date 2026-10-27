@@ -2,7 +2,11 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, cpSync, existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { readFileSync, writeFileSync } from "node:fs";
-import { patchStartupAnnouncements } from "../games/arknights/maa-startup-patch.mjs";
+import {
+  patchStartupAnnouncements,
+  patchInfrastructureNavigation,
+} from "../games/arknights/maa-startup-patch.mjs";
+import { pruneBuiltMaaResources } from "./shared/build-resources.mjs";
 const contract = JSON.parse(
   readFileSync(
     new URL("../games/arknights/engine-contract.json", import.meta.url),
@@ -69,7 +73,11 @@ if (existsSync(`${vendor}/gamepilot-provenance.json`)) {
   const tasks = JSON.parse(readFileSync(taskFile, "utf8"));
   writeFileSync(
     taskFile,
-    JSON.stringify(patchStartupAnnouncements(tasks), null, 4),
+    JSON.stringify(
+      patchInfrastructureNavigation(patchStartupAnnouncements(tasks)),
+      null,
+      4,
+    ),
   );
   writeFileSync(
     `${output}/gamepilot-resource-patches.json`,
@@ -83,6 +91,8 @@ if (existsSync(`${vendor}/gamepilot-provenance.json`)) {
       2,
     ),
   );
+  // Do not ship an old native engine merely because this checkout built it before.
+  await pruneBuiltMaaResources(resolve("dist/resources"), contract.version);
 }
 for (const name of [
   "MAA-LICENSE.txt",

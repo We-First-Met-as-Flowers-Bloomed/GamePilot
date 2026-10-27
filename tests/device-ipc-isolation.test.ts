@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { transformSync } from "esbuild";
 import { ExecutionCoordinator } from "../apps/desktop/main/execution-coordinator";
+import { registerSettingsIpc } from "../apps/desktop/main/ipc/settings";
+import type { DeviceLanes } from "../packages/protocol";
 
 const source = readFileSync(
   new URL("../apps/desktop/main/index.ts", import.meta.url),
@@ -37,12 +39,64 @@ async function setup() {
   await executions.load();
   return executions;
 }
+// gp:arknights-probe 已经搬到 apps/desktop/main/ipc/settings.ts，直接 import 真模块，
+// 不再靠切 index.ts 源码——这正是把 handler 抽出闭包带来的好处。
+function settingsProbeHandler(
+  executions: ExecutionCoordinator,
+  request: (method: string, ...args: unknown[]) => Promise<unknown>,
+) {
+  const registered = new Map<
+    string,
+    (input?: unknown) => Promise<unknown> | unknown
+  >();
+  registerSettingsIpc({
+    register: (channel, callback) => {
+      registered.set(channel, callback);
+    },
+    busy: () => ({
+      starting: false,
+      connecting: false,
+      finishing: false,
+      configuring: false,
+      automaticReserved: false,
+      startupInspectionRunning: false,
+      chatBusy: false,
+      executionsActive: false,
+      historyActive: false,
+    }),
+    withConfiguring: (action) => action(),
+    anyLaneRunning: () => false,
+    validateDeviceLanes: (input) => input as DeviceLanes,
+    deviceLanes: {
+      read: async () => ({ version: 1, lanes: [] }) as DeviceLanes,
+      save: async (value) => value,
+    },
+    arknights: {
+      read: async () => ({ version: 1, activeProfileId: "", profiles: [] }),
+      save: async (value) => value,
+    },
+    settings: { save: async (value) => value },
+    automation: { read: async () => ({ managerPath: "" }) },
+    invalidatePreview: () => {},
+    discoverInstances: async () => ({}),
+    probeArknights: () =>
+      executions.inspect(["*"], () =>
+        request("arknights-probe", undefined, 60000),
+      ),
+  });
+  const callback = registered.get("gp:arknights-probe");
+  if (!callback) throw Error("gp:arknights-probe 未注册");
+  return callback as (input?: unknown) => Promise<unknown>;
+}
+
 // Execute the actual IPC registration without booting Electron or copying its guards.
 function handler(
   channel: string,
   executions: ExecutionCoordinator,
   request: (method: string, ...args: unknown[]) => Promise<unknown>,
 ) {
+  if (channel === "gp:arknights-probe")
+    return settingsProbeHandler(executions, request);
   const start = source.indexOf(`handle("${channel}",`);
   const end = source.indexOf("\n      });", start);
   if (start < 0 || end < 0) throw Error(`IPC registration missing: ${channel}`);

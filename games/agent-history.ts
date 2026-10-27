@@ -6,6 +6,7 @@ import type {
 } from "../packages/protocol/task-record";
 import { taskFor, defaultArknightsConfig } from "./arknights/config";
 import { agentDate } from "../packages/protocol/agent";
+import { validArknightsEvidence } from "./arknights/evidence";
 
 export function historyPlan(raw: unknown): Plan {
   const plan = raw as Plan;
@@ -35,7 +36,8 @@ export function historyStepStatus(
   if (
     ["succeeded", "skipped"].includes(step.status) &&
     step.result?.arknights &&
-    step.result.arknights.completion !== "native-confirmed"
+    (!validArknightsEvidence(step.result.arknights) ||
+      step.result.arknights.completion !== "native-confirmed")
   )
     return "unknown";
   return step.status;

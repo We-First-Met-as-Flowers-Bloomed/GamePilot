@@ -168,16 +168,16 @@ const arkEffects: Record<string, AgentCapabilityEffect[]> = {
   copilot: [
     effect(
       "copilot",
-      "既有手工入口读取本地作业并编队执行，不吃药；不在日常草稿范围",
+      "手工配置本地作业或列表后执行，可明确允许理智药使用，原生无瓶数上限；不在AI日常草稿范围",
       "copilot",
       "consume",
-      "当前理智",
+      "当前理智及明确允许时的理智药",
     ),
   ],
   roguelike: [
     effect(
       "roguelike",
-      "黑流树海单次探索，最终Boss前停止；需看护，不在日常草稿范围",
+      "按保存的主题、策略和次数探索，受运行时限约束；需看护，不在日常草稿范围",
       "roguelike",
       "configure",
     ),
@@ -185,9 +185,59 @@ const arkEffects: Record<string, AgentCapabilityEffect[]> = {
   reclamation: [
     effect(
       "reclamation",
-      "重启锚点RA-1单批执行，不清空商店；需看护，不在日常草稿范围",
+      "按保存的生息演算策略执行，制造和清店可能消耗演算资源；需看护，不在日常草稿范围",
       "reclamation",
       "configure",
+    ),
+  ],
+  "sss-copilot": [
+    effect(
+      "sss-copilot",
+      "读取本地保全作业并执行，受循环和时限约束；需手动配置，不在AI日常草稿范围",
+      "sss-copilot",
+      "configure",
+    ),
+  ],
+  "paradox-copilot": [
+    effect(
+      "paradox-copilot",
+      "读取本地悖论作业或列表并执行，受时限约束；需手动配置，不在AI日常草稿范围",
+      "paradox-copilot",
+      "configure",
+    ),
+  ],
+  "switch-theme": [
+    effect(
+      "switch-theme",
+      "按保存的候选名称切换游戏主题；需手动配置，不在AI日常草稿范围",
+      "switch-theme",
+      "configure",
+    ),
+  ],
+  "video-recognition": [
+    effect(
+      "video-recognition",
+      "读取本地战斗录屏并尝试生成作业，结果须人工复核；不在AI日常草稿范围",
+      "video-recognition",
+      "read",
+    ),
+  ],
+  "activity-game": [
+    effect(
+      "activity-game",
+      "执行当前官方目录授权的活动小游戏，玩法可能消耗活动机会或代币；需手动选择，不在AI日常草稿范围",
+      "activity-game",
+      "consume",
+      "所选活动玩法对应机会或代币",
+    ),
+  ],
+  "operator-progress": [
+    effect(
+      "operator-progress",
+      "按明确计划养成干员，须用户允许消耗材料；原生无逐物品数量上限，不在AI日常草稿范围",
+      "operator-progress",
+      "consume",
+      "升级、精英化和技能训练所需材料与龙门币",
     ),
   ],
 };
@@ -248,6 +298,15 @@ const onmyojiEffects: Record<string, AgentCapabilityEffect[]> = {
       "claim",
     ),
   ],
+  oboroguruma: [
+    effect(
+      "oboroguruma",
+      "检查御魂和八岐大蛇加成后按最大次数执行胧车；需看护，不在日常草稿范围",
+      "oboroguruma",
+      "consume",
+      "胧车挑战次数",
+    ),
+  ],
   foster: [
     effect(
       "foster",
@@ -282,6 +341,7 @@ const parameterNotes = {
     "award的taskAward独立控制每日和每周任务奖励；只领邮件需mail=true、taskAward=false并关闭其他活动附带动作",
     "friends访问好友并收取信用；creditShopping=false可独立关闭信用购物",
     "不补充任何理智药、临期药或源石",
+    "AI日常使用目录披露的六项默认参数；设置页的高级任务参数、补给和多关队列不隐式进入此草稿",
     "关卡是否开放和代理可用须实机检查",
   ],
   onmyoji: [

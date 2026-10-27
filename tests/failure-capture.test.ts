@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve, isAbsolute } from "node:path";
 import { createHash } from "node:crypto";
 import { captureFailureImage } from "../packages/runtime/failure-capture";
+import { withDisplayQueries, physicalDisplay } from "./android-capture-fixture";
 const roots: string[] = [];
 afterEach(async () => {
   for (const root of roots.splice(0)) {
@@ -41,13 +42,13 @@ it("captures exactly one read-only screenshot and persists its digest without pa
     root,
     device,
     new AbortController().signal,
-    async (_file, args) => {
+    withDisplayQueries(async (_file, args) => {
       calls.push(args);
       return png;
-    },
+    }),
   );
   expect(calls).toEqual([
-    ["-s", device.address, "exec-out", "screencap", "-p"],
+    ["-s", device.address, "exec-out", "screencap", "-p", "-d", physicalDisplay],
   ]);
   expect(evidence.status).toBe("stored");
   if (evidence.status !== "stored") throw Error("missing image");

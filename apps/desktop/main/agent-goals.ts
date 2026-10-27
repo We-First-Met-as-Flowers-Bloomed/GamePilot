@@ -177,7 +177,9 @@ function validGrant(v: GoalRun["grant"]) {
   return (
     !!v &&
     identifier(v.id) &&
-    ["user-message", "saved-policy"].includes(v.source) &&
+    ["user-message", "saved-policy", "local-confirmation"].includes(v.source) &&
+    (v.source !== "local-confirmation" ||
+      (textValue(v.planHash, 200) && !!v.planHash)) &&
     identifier(v.sessionId) &&
     identifier(v.turnId) &&
     timestamp(v.issuedAt) &&
@@ -717,6 +719,15 @@ export class GoalService {
     )
       throw new AgentToolError("GOAL_REVIEW_EXPIRED", "冻结计划检查已过期。");
     assertSubset(prepared.scopes, goal.grant.scopes);
+    if (
+      !recovery &&
+      goal.grant.source === "local-confirmation" &&
+      prepared.fingerprint !== goal.grant.planHash
+    )
+      throw new AgentToolError(
+        "GOAL_PLAN_CHANGED",
+        "账号或配置与本地确认的指纹不一致，请重新检查并确认。",
+      );
     const preferences = this.preferences();
     if (
       prepared.scopes.some(

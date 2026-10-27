@@ -1,5 +1,5 @@
 import "@maaxyz/maa-node";
-import type { Frame, Rect } from "./device";
+import type { Frame, Rect, VisualHit } from "./device";
 
 /** Native offline OCR. This class owns no device controller and cannot send input. Worker only. */
 export class ImageOcr {
@@ -76,5 +76,46 @@ export class ImageOcr {
     this.tasker = undefined;
     this.resource?.destroy();
     this.resource = undefined;
+  }
+  /** Offline visual anchor from the same PNG; owns no device and sends no input. */
+  async matchTemplate(
+    image: string,
+    imageDirectory: string,
+    template: string,
+    roi: Rect,
+  ): Promise<VisualHit | undefined> {
+    if (!this.resource || !this.tasker)
+      throw Error("须先识别同一张 PNG 再核对图像锚点");
+    if (!image.startsWith("data:image/png;base64,"))
+      throw Error("图像锚点必须使用 PNG");
+    if (!(await this.resource.post_image(imageDirectory).wait()).succeeded)
+      throw Error("图像锚点资源加载失败");
+    const bytes = Buffer.from(
+      image.slice("data:image/png;base64,".length),
+      "base64",
+    );
+    const tasker = this.tasker;
+    try {
+      const job = await tasker
+        .post_recognition(
+          "TemplateMatch",
+          { template, roi, threshold: 0.95 },
+          bytes.buffer.slice(
+            bytes.byteOffset,
+            bytes.byteOffset + bytes.byteLength,
+          ) as ArrayBuffer,
+        )
+        .wait();
+      const hits =
+        job.get()?.nodes.flatMap((id) => {
+          const detail = tasker.node_detail(id)?.reco?.detail;
+          return detail && !Array.isArray(detail) ? detail.filtered : [];
+        }) ?? [];
+      if (!job.succeeded || hits.length !== 1) return;
+      const hit = hits[0];
+      return { box: hit.box, score: hit.score ?? 0 };
+    } finally {
+      tasker.clear_cache();
+    }
   }
 }

@@ -23,10 +23,11 @@ export interface GoalScope {
   /** Maximum permitted consumption. A missing resource never authorizes spending. */
   resources: Record<string, number>;
 }
-/** Constructed by trusted host code from a current user message or configured policy. */
+/** New grants require a reviewed local confirmation or a configured policy. */
 export interface GoalExecutionGrant {
   id: string;
-  source: "user-message" | "saved-policy";
+  source: "user-message" | "saved-policy" | "local-confirmation";
+  planHash?: string;
   sessionId: string;
   turnId: string;
   issuedAt: string;

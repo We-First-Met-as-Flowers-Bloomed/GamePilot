@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import {
   ChevronDown,
   CircleCheck,
@@ -6,12 +6,25 @@ import {
   Clock3,
   Wrench,
   Minus,
+  CircleHelp,
 } from "lucide-react";
 import type { DesktopAPI } from "../../../../packages/protocol";
 import type { AgentEvent } from "../../../../packages/protocol/agent-events";
-import type { PlannerUsage } from "../../../../packages/protocol/agent-planner";
+import type {
+  PlannerResult,
+  PlannerUsage,
+} from "../../../../packages/protocol/agent-planner";
 
-const toolKinds = ["tool-requested", "tool-started", "tool-result"];
+import {
+  callDuration,
+  groupTraceEvents,
+  measuredDuration,
+  toolKinds,
+  toolLabel,
+  traceStatusLabel,
+  traceSummary,
+} from "../trace-presentation";
+export { measuredDuration } from "../trace-presentation";
 function statusMark(event: AgentEvent) {
   return event.status === "succeeded" ? (
     <CircleCheck size={14} />
@@ -19,18 +32,11 @@ function statusMark(event: AgentEvent) {
     <Clock3 size={14} />
   ) : ["failed", "blocked"].includes(event.status) ? (
     <CircleX size={14} />
+  ) : event.status === "unknown" ? (
+    <CircleHelp size={14} />
   ) : (
     <Minus size={14} />
   );
-}
-export function measuredDuration(value?: number) {
-  return value === undefined || !Number.isFinite(value) || value < 0
-    ? "耗时未记录"
-    : value > 0 && value < 1
-      ? "小于 1 毫秒"
-      : value < 1000
-        ? `${Math.round(value)} 毫秒`
-        : `${Number((value / 1000).toFixed(2))} 秒`;
 }
 function publicJson(value: string | undefined) {
   if (value === undefined) return "未记录";
@@ -43,20 +49,7 @@ function publicJson(value: string | undefined) {
 
 /** Public host events, grouped by exact call ID; journal timestamps are never durations. */
 export function AgentEventTimeline({ events }: { events: AgentEvent[] }) {
-  const groups: { key: string; events: AgentEvent[]; callId?: string }[] = [];
-  const calls = new Map<string, (typeof groups)[number]>();
-  for (const event of events.filter((e) => e.kind !== "model-usage")) {
-    if (toolKinds.includes(event.kind) && event.callId) {
-      const key = `${event.requestId}:${event.callId}`;
-      const group = calls.get(key);
-      if (group) group.events.push(event);
-      else {
-        const value = { key, events: [event], callId: event.callId };
-        calls.set(key, value);
-        groups.push(value);
-      }
-    } else groups.push({ key: `event-${event.seq}`, events: [event] });
-  }
+  const groups = groupTraceEvents(events);
   return (
     <ol className="agent-event-timeline">
       {groups.map((group) => {
@@ -85,10 +78,7 @@ export function AgentEventTimeline({ events }: { events: AgentEvent[] }) {
         const result = [...group.events]
           .reverse()
           .find((e) => e.details?.result !== undefined)?.details?.result;
-        const duration = [...group.events]
-          .reverse()
-          .find((e) => e.details?.durationMs !== undefined)
-          ?.details?.durationMs;
+        const duration = callDuration(group);
         return (
           <li
             key={group.key}
@@ -100,7 +90,15 @@ export function AgentEventTimeline({ events }: { events: AgentEvent[] }) {
             <details className="agent-call-details">
               <summary>
                 {statusMark(last)}
-                <span>{last.tool ?? first.tool ?? "工具调用"}</span>
+                <span
+                  className="agent-tool-name"
+                  title={last.tool ?? first.tool}
+                >
+                  {toolLabel(last.tool ?? first.tool)}
+                </span>
+                <span className="agent-tool-status">
+                  {traceStatusLabel(last.status)}
+                </span>
                 <small>{measuredDuration(duration)}</small>
                 <ChevronDown size={13} />
               </summary>
@@ -135,22 +133,30 @@ export function AgentEventTimeline({ events }: { events: AgentEvent[] }) {
 }
 
 /** Listener before replay; sequence dedupe lets late IPC and disk history converge. */
-export function AgentRunTrace({
+function AgentRunTraceView({
   api,
   requestId,
   active,
   presentation = "inline",
   omitCommands = false,
+  fallbackTrace,
 }: {
   api?: DesktopAPI;
   requestId?: string;
   active: boolean;
   presentation?: "inline" | "trajectory";
   omitCommands?: boolean;
+  fallbackTrace?: PlannerResult["trace"];
 }) {
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [partial, setPartial] = useState("");
   const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState(
+    active || presentation === "trajectory",
+  );
+  useEffect(() => {
+    setExpanded(active || presentation === "trajectory");
+  }, [active, requestId, presentation]);
   useEffect(() => {
     setEvents([]);
     setPartial("");
@@ -226,39 +232,117 @@ export function AgentRunTrace({
   const usage: PlannerUsage | undefined = events
     .filter((e) => e.kind === "model-usage")
     .at(-1)?.usage;
-  const tools = events.filter((e) =>
-    ["tool-requested", "tool-started", "tool-result"].includes(e.kind),
-  );
+  const showFallback =
+    !active &&
+    !!fallbackTrace?.length &&
+    !events.some((event) => toolKinds.includes(event.kind));
+  const usageText = usage
+    ? `输入 ${usage.inputTokens ?? "未提供"} · 输出 ${usage.outputTokens ?? "未提供"}${usage.cachedInputTokens === undefined ? "" : ` · 输入内缓存 ${usage.cachedInputTokens}`}`
+    : "未提供";
   return (
     <>
-      {active && partial && (
-        <p className="chat-answer chat-partial" aria-label="模型实时回复">
-          {partial}
-        </p>
-      )}
       {error && (
         <p className="helper" role="alert">
           {error}
         </p>
       )}
-      {events.length === 0 && presentation === "trajectory" && (
-        <p className="trajectory-empty-record">
-          还没有调用记录
-          {active ? "，正在等待宿主事件。" : "；该轮次未提供过程记录。"}
-        </p>
-      )}
-      {events.length > 0 && (
+      {showFallback && (
         <details
           className="chat-response-details chat-tool-trace"
           aria-label="实时工具与模型记录"
-          open={presentation === "trajectory"}
         >
           <summary>
             <Wrench size={14} />
-            {active ? "正在处理" : "处理记录"}
-            <span>
-              {tools.filter((e) => e.kind === "tool-result").length} 次工具返回
-            </span>
+            过程
+            <span>调用 {fallbackTrace!.length} 个工具 · 耗时未记录</span>
+            <ChevronDown size={14} />
+          </summary>
+          <ol className="agent-event-timeline">
+            {fallbackTrace!.map((call) => {
+              const status =
+                call.code === "TOOL_RESPONSE_UNCONFIRMED"
+                  ? "unknown"
+                  : call.success
+                    ? "succeeded"
+                    : "failed";
+              return (
+                <li
+                  key={call.callId}
+                  data-agent-call-id={call.callId}
+                  data-status={status}
+                  className="agent-tool-entry"
+                >
+                  <details className="agent-call-details">
+                    <summary>
+                      {status === "unknown" ? (
+                        <CircleHelp size={14} />
+                      ) : call.success ? (
+                        <CircleCheck size={14} />
+                      ) : (
+                        <CircleX size={14} />
+                      )}
+                      <span className="agent-tool-name" title={call.tool}>
+                        {toolLabel(call.tool)}
+                      </span>
+                      <span className="agent-tool-status">
+                        {traceStatusLabel(status)}
+                      </span>
+                      <small>耗时未记录</small>
+                      <ChevronDown size={13} />
+                    </summary>
+                    <div className="agent-call-body">
+                      <p>
+                        {call.success
+                          ? "工具返回结果；游戏结果需另行核对。"
+                          : `工具${status === "unknown" ? "响应未确认" : "返回失败"}${call.code ? `（${call.code}）` : ""}。`}
+                      </p>
+                      <div className="agent-call-io">
+                        <section>
+                          <h5>调用参数</h5>
+                          <pre>未记录</pre>
+                        </section>
+                        <section>
+                          <h5>返回摘要</h5>
+                          <pre>未记录</pre>
+                        </section>
+                      </div>
+                    </div>
+                  </details>
+                </li>
+              );
+            })}
+          </ol>
+          <AgentEventTimeline
+            events={
+              omitCommands
+                ? events.filter((event) => event.kind !== "command")
+                : events
+            }
+          />
+          <p className="helper">
+            模型提供用量：{usageText}。工具返回与游戏完成分别核对。
+          </p>
+        </details>
+      )}
+      {events.length === 0 &&
+        !fallbackTrace?.length &&
+        presentation === "trajectory" && (
+          <p className="trajectory-empty-record">
+            还没有调用记录
+            {active ? "，正在等待宿主事件。" : "；该轮次未提供过程记录。"}
+          </p>
+        )}
+      {events.length > 0 && !showFallback && (
+        <details
+          className="chat-response-details chat-tool-trace"
+          aria-label="实时工具与模型记录"
+          open={expanded}
+          onToggle={(event) => setExpanded(event.currentTarget.open)}
+        >
+          <summary>
+            <Wrench size={14} />
+            {active ? "过程 · 正在处理" : "过程"}
+            <span>{traceSummary(events)}</span>
             <ChevronDown size={14} />
           </summary>
           <AgentEventTimeline
@@ -270,13 +354,23 @@ export function AgentRunTrace({
           />
           <p className="helper">
             模型提供用量：
-            {usage
-              ? `输入 ${usage.inputTokens ?? "未提供"} · 输出 ${usage.outputTokens ?? "未提供"}${usage.cachedInputTokens === undefined ? "" : ` · 输入内缓存 ${usage.cachedInputTokens}`}`
-              : "未提供"}
+            {usageText}
             。工具返回与游戏完成分别核对。
           </p>
         </details>
       )}
+      {active && partial && (
+        <div className="chat-model-explanation">
+          <p className="chat-ai-disclaimer">AI 说明 · 以任务记录为准</p>
+          <p className="chat-answer chat-partial" aria-label="模型实时回复">
+            {partial}
+          </p>
+        </div>
+      )}
     </>
   );
 }
+
+// Unchanged host/planner snapshots must not rebuild every historical journal.
+// Local event and stream state still renders immediately through React state.
+export const AgentRunTrace = memo(AgentRunTraceView);

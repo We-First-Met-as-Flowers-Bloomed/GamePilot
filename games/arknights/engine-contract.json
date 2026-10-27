@@ -1,9 +1,16 @@
 {
-  "version": "v6.17.5",
-  "archiveSha256": "d410fc15d6b8cc460bb3149a93ce43596999adaff32d0c484470a10cbacfbcb8",
+  "version": "v6.20.1",
+  "archiveSha256": "28a6c812c184f4bd6e8a7e7448b2ffa6312d711de7d39595deac771e3e784ea8",
   "awardOptions": {
-    "award": { "supported": true, "label": "每日和每周任务奖励" },
-    "mail": { "supported": true, "label": "邮件", "configKey": "mail" },
+    "award": {
+      "supported": true,
+      "label": "每日和每周任务奖励"
+    },
+    "mail": {
+      "supported": true,
+      "label": "邮件",
+      "configKey": "mail"
+    },
     "recruit": {
       "supported": true,
       "label": "免费单抽",
@@ -25,7 +32,7 @@
       "configKey": "specialAccess"
     },
     "signinevent": {
-      "supported": false,
+      "supported": true,
       "minVersion": "v6.18.0",
       "label": "限时签到奖励",
       "configKey": "signInEvent"

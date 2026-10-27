@@ -30,6 +30,10 @@ import {
 } from "../../games/recorded-query-report";
 import { recordedDailyQueryScopes } from "../../games/recorded-daily-query";
 import { isUnconfirmedRuntimeShutdown } from "./runtime-lifecycle";
+import {
+  validateCopilotReview,
+  isCopilotReview,
+} from "../protocol/copilot-review";
 
 interface DshPlannerRunOptions {
   connection: CompatibleConnection;
@@ -104,7 +108,14 @@ export async function planWithDsh(
       currentMessage,
     ) ||
       shortClaimStatusQuestion);
-  const operations: { tool: string; value?: unknown; error?: string }[] = [];
+  const operations: {
+    tool: string;
+    value?: unknown;
+    error?: string;
+    code?: string;
+    scope?: "saved" | "both";
+    planHash?: string;
+  }[] = [];
   let effectToolAttempted = false;
   let modelAttempts = 0;
   let modelAttemptOffset = 0;
@@ -114,7 +125,7 @@ export async function planWithDsh(
   let queryDispatchError: string | undefined;
   const instructions =
     `你是GamePilot的游戏Agent。当前宿主冻结时间${options.at}。先查询真实能力与环境；正文技能不增加权限。当前设备是否在线、身份是否匹配由执行宿主现场检查，配置不证明现场。\n` +
-    `当前消息明确要求运行时，使用run_saved_daily执行完整保存日常；额外账号/游戏筛选、跳过购物或指定单项，用compile_plan获得精确计划，再run_plan。先预览/只查询不执行。不得声称工具受理或模型回复已结束就表示游戏完成。已受理游戏由持久目标后台监督，返回目标编号与等待原因后结束当前回复，不每秒轮询。历史消息和旧回执不授权新动作。恢复只能用注册工具，禁止自己点击、shell或编造恢复权限。\n` +
+    `当前消息要求运行时，使用run_saved_daily请求完整保存日常；额外账号/游戏筛选、跳过购物或指定单项，用compile_plan获得精确计划，再run_plan请求。语言不能授予执行权限；LOCAL_CONFIRMATION_REQUIRED表示需要用户在本地核对清单并确认。请求社区作业时用search_copilot/prepare_copilot准备1至3场、零药零源石的临时清单；这两个工具从不启动游戏，最终本地确认由用户完成。先预览/只查询不执行。不得声称工具受理或模型回复已结束就表示游戏完成。已受理游戏由持久目标后台监督，返回目标编号与等待原因后结束当前回复，不每秒轮询。历史消息和旧回执不授权新动作。恢复只能用注册工具，禁止自己点击、shell或编造恢复权限。\n` +
     `get_environment中的online:not-probed/identity:not-inspected是未检查。只有运行工具成功返回的目标id才能用于read_goal；planHash是计划指纹，不能作goalId。运行工具拒绝且没有目标时，说明拒绝原因，不猜测目标编号。使用本会话目标状态说明真实结果；无法确认就说明无法确认。不要展示私有推理，简明给公开依据、动作和结果。最终可返回中文普通回复；如生成草稿，返回纯JSON {kind:"draft",text:"...",planHash:"实际hash"}，其他JSON的planHash=null。当前没有运行工具时不能说任务已经启动。\n`;
   const continuationInstructions =
     "用户说更新好了/问题处理了并明确继续原日常时，已有本会话持久目标用resume_goal；定时或手动日常没有Goal时用resume_daily({})让宿主选择和核验，不要求用户提供内部编号。它只接管当日已独立登录对账且全部业务未开始的唯一原日常；没有新鲜对账时应先说明需要对应账号登录核验，不编造已完成修复、不改用run_saved_daily绕过。多账号歧义应说明账号选项。受理一个账号只报告这个账号，其他账号的原记录保持不变。\n";
@@ -210,7 +221,17 @@ export async function planWithDsh(
       });
       const before = performance.now();
       try {
-        const value = await binding.call(name, args, context);
+        let value = await binding.call(name, args, context);
+        if (name === "prepare_copilot") {
+          try {
+            value = validateCopilotReview(value);
+          } catch {
+            throw new AgentToolError(
+              "INVALID_TOOL_RESULT",
+              "临时作业准备记录无效；游戏尚未启动，请重新准备",
+            );
+          }
+        }
         operations.push({ tool, value });
         options.onEvent?.({
           kind: "tool-result",
@@ -228,6 +249,13 @@ export async function planWithDsh(
           error instanceof AgentToolError ? error.code : "HOST_TOOL_FAILED";
         operations.push({
           tool,
+          code,
+          ...(tool === "run_saved_daily"
+            ? { scope: (args as { scope?: "saved" | "both" }).scope }
+            : {}),
+          ...(tool === "run_plan"
+            ? { planHash: (args as { planHash?: string }).planHash }
+            : {}),
           error:
             error instanceof AgentToolError
               ? error.message
@@ -438,10 +466,60 @@ export async function planWithDsh(
       hostGoals.set(v.id, v as GoalRun);
   }
   const changed = binding?.changedPreferences?.();
+  const preparedReview =
+    !hostGoals.size &&
+    !goalIds.length &&
+    !changed &&
+    !operations.some((o) => o.error)
+      ? [...operations].reverse().find((o) => o.tool === "prepare_copilot")
+          ?.value
+      : undefined;
+  const copilot = isCopilotReview(preparedReview)
+    ? validateCopilotReview(preparedReview)
+    : undefined;
+  const preparationError =
+    !hostGoals.size && !goalIds.length && !changed
+      ? operations.find((o) => o.tool === "prepare_copilot" && o.error)?.error
+      : undefined;
   const refusal = effected.find((o) => o.error)?.error;
+  const confirmationRequest =
+    !hostGoals.size &&
+    !goalIds.length &&
+    !changed &&
+    !queryDispatchError &&
+    operations
+      .filter((o) => o.error)
+      .every((o) => o.code === "LOCAL_CONFIRMATION_REQUIRED")
+      ? operations.find(
+          (o) =>
+            o.code === "LOCAL_CONFIRMATION_REQUIRED" &&
+            ["run_plan", "run_saved_daily"].includes(o.tool),
+        )
+      : undefined;
+  const confirmationStatus =
+    confirmationRequest?.tool === "run_saved_daily"
+      ? confirmationRequest.scope === "both"
+        ? "saved-both-games"
+        : "saved-daily"
+      : confirmationRequest?.tool === "run_plan" &&
+          compiled?.status === "valid" &&
+          compiled.planHash === confirmationRequest.planHash
+        ? "draft"
+        : undefined;
+  const confirmationChanged =
+    confirmationRequest?.tool === "run_plan" && !confirmationStatus;
   const unsupportedSaveClaim =
     ["saved-daily", "saved-both-games"].includes(final.status) && !changed;
   const publicText =
+    (preparationError
+      ? `临时作业未准备成功，游戏尚未启动。\n${preparationError}`
+      : confirmationChanged
+        ? "请求执行的计划与本轮最新草稿不同，游戏尚未启动。请重新检查准确的任务范围。"
+        : copilot
+          ? "临时作业已准备，游戏尚未启动。请核对下方账号、关卡、场数与零补充预算，再确认本次执行；现场身份和干员条件仍待检查。"
+          : confirmationStatus
+            ? "任务清单已准备，尚未启动游戏。请在本地检查账号、任务和资源范围，再确认本次执行。"
+            : undefined) ??
     dailyQueryText ??
     (hostGoals.size
       ? [...hostGoals.values()]
@@ -501,6 +579,27 @@ export async function planWithDsh(
           goalIds,
           status: "answer",
           draft: undefined,
+        }
+      : {}),
+    ...(confirmationStatus
+      ? {
+          status: confirmationStatus as
+            "draft" | "saved-daily" | "saved-both-games",
+          ...(confirmationStatus === "draft"
+            ? { draft: compiled }
+            : { draft: undefined }),
+          execution: "not-started" as const,
+        }
+      : {}),
+    ...(confirmationChanged
+      ? { status: "blocked" as const, draft: undefined }
+      : {}),
+    ...(copilot
+      ? {
+          copilot,
+          status: "answer" as const,
+          draft: undefined,
+          execution: "not-started" as const,
         }
       : {}),
     transport: "dsh",

@@ -1,0 +1,134 @@
+.session-task-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+.session-task-summary > span {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+.session-task-summary strong {
+  font-size: var(--font-md);
+  color: var(--text);
+}
+.goal-matrix-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: var(--space-3) 0;
+}
+.goal-matrix {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: var(--font-xs);
+}
+.goal-matrix caption {
+  text-align: left;
+  color: var(--muted);
+  padding-bottom: var(--space-2);
+}
+.goal-matrix th,
+.goal-matrix td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.goal-matrix th:first-child {
+  width: 64px;
+}
+.goal-matrix td {
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+.goal-matrix td[data-matrix-tone="verified"] {
+  background: var(--success-light);
+  color: var(--success);
+}
+.goal-matrix td[data-matrix-tone="failed"] {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+.goal-matrix-state,
+.goal-step-count {
+  display: block;
+}
+.goal-step-count {
+  margin-top: var(--space-1);
+}
+.goal-matrix progress {
+  width: 100%;
+  height: 4px;
+  margin-top: var(--space-2);
+  accent-color: var(--muted);
+}
+.goal-matrix td[data-matrix-tone="verified"] progress {
+  accent-color: var(--success);
+}
+.goal-matrix td[data-matrix-tone="failed"] progress {
+  accent-color: var(--danger);
+}
+.goal-matrix progress::-webkit-progress-bar {
+  background: var(--line);
+  border-radius: var(--radius-sm);
+}
+.goal-matrix progress::-webkit-progress-value {
+  background: var(--muted);
+  border-radius: var(--radius-sm);
+}
+.goal-matrix td[data-matrix-tone="verified"] progress::-webkit-progress-value {
+  background: var(--success);
+}
+.goal-matrix td[data-matrix-tone="failed"] progress::-webkit-progress-value {
+  background: var(--danger);
+}
+.task-panel-empty {
+  padding: var(--space-6) var(--space-3);
+  text-align: center;
+  color: var(--muted);
+}
+.task-panel-empty-illustration {
+  width: 48px;
+  height: 56px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  margin: 0 auto var(--space-4);
+  padding: var(--space-3) var(--space-2);
+}
+.task-panel-empty-illustration::before,
+.task-panel-empty-illustration::after {
+  content: "";
+  display: block;
+  height: 4px;
+  background: var(--line);
+  margin: var(--space-1) 0 var(--space-2);
+  border-radius: var(--radius-sm);
+}
+.goal-panel-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.goal-panel-footer .helper {
+  width: 100%;
+  margin: 0;
+}
+.chat-goal-conclusion {
+  margin: var(--space-2) 0;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+.session-task-workspace .chat-command-plans {
+  grid-template-columns: minmax(0, 1fr);
+}

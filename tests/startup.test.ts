@@ -22,6 +22,7 @@ describe("startup automation", () => {
       closeToTray: false,
       notifyResults: false,
       closeEmulatorAfterSuccess: false,
+    followActivityStage: false,
     });
     expect(() => validateAutomation({ instance: -1 })).toThrow();
     expect(() => validateAutomation({ runOnLaunch: "true" })).toThrow();

@@ -7,6 +7,8 @@ import { chatTurnLabel } from "../chat-state";
 import { AgentRunTrace, measuredDuration } from "./AgentRunTrace";
 import type { ChatCommandView } from "../../../../packages/protocol/chat-commands";
 import { useGoals, type GoalController } from "../hooks/useGoals";
+import { useDistinctValue } from "../hooks/useDistinctValue";
+import { watchSnapshot } from "../hooks/watchSnapshot";
 
 export function trajectoryCommandScope(
   commands: ChatCommandView[],
@@ -91,40 +93,30 @@ function TrajectoryContent({
   const turns = session?.turns ?? [];
   const [commands, setCommands] = useState<ChatCommandView[]>([]);
   const [commandError, setCommandError] = useState("");
+  const unchanged = useDistinctValue();
   useEffect(() => {
     setCommands([]);
     setCommandError("");
     if (!api || !session?.id || typeof api.chatCommands !== "function") return;
-    let disposed = false,
-      revision = 0;
     const sessionId = session.id;
-    const read = async () => {
-      const current = ++revision;
-      try {
-        const values = await api.chatCommands(sessionId);
-        if (disposed || current !== revision) return;
+    return watchSnapshot({
+      read: () => api.chatCommands(sessionId),
+      subscribe: (refresh) =>
+        api.onAgentEvent?.((event) => {
+          if (event.kind === "command" && event.sessionId === sessionId)
+            refresh();
+        }) ?? (() => {}),
+      accept: (values) => {
+        setCommandError("");
+        if (!unchanged([sessionId, values])) return;
         setCommands(
           values.filter((command) => command.sessionId === sessionId),
         );
-        setCommandError("");
-      } catch {
-        if (!disposed && current === revision)
-          setCommandError(
-            "暂时无法读取本会话的宿主指令轨迹，请核对原执行回执。",
-          );
-      }
-    };
-    const unsubscribe = api.onAgentEvent?.((event) => {
-      if (event.kind === "command" && event.sessionId === sessionId)
-        void read();
+      },
+      error: () => {
+        setCommandError("暂时无法读取本会话的宿主指令轨迹，请核对原执行回执。");
+      },
     });
-    void read();
-    const timer = setInterval(() => void read(), 5000);
-    return () => {
-      disposed = true;
-      clearInterval(timer);
-      unsubscribe?.();
-    };
   }, [api, session?.id]);
   const commandScope = trajectoryCommandScope(commands, session);
   return (

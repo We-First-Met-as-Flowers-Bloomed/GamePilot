@@ -98,7 +98,7 @@
 .result-summary-scope,
 .result-summary-boundary {
   margin-top: 12px;
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 .result-summary-time {
   margin-top: 8px;

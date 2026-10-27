@@ -1,0 +1,59 @@
+.ark-extended-options {
+  margin-top: 16px;
+}
+.ark-extended-options .settings-details {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.ark-extended-options .settings-details > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ark-extended-choices {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.ark-extended-options .button[aria-pressed="true"],
+.ark-extended-options .button[aria-checked="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+.ark-activity-selection {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.ark-operator-target {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.ark-operator-target legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ark-operator-target select {
+  width: 100%;
+  min-width: 0;
+}
+.ark-extended-options .ark-operator-target label {
+  margin: 0;
+}
+.ark-operator-mastery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+@media (max-width: 700px) {
+  .ark-operator-mastery {
+    grid-template-columns: 1fr;
+  }
+}

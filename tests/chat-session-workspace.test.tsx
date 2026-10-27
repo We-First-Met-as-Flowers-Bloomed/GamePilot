@@ -131,11 +131,16 @@ it("separates and lazily opens other devices without mounting their diagnostic w
   expect(html).toContain('aria-label="设备任务与定时任务"');
   expect(html).not.toContain("data-test-device-panel");
 });
-it("puts reference data into advanced composer controls instead of pretending it is a game scope", () => {
+it("keeps a unique reference data selector visible in the composer footer without treating it as a game scope", () => {
   const html = renderToStaticMarkup(createElement(Chat, props(0)));
   expect(html).toContain('aria-label="参考数据"');
   expect(html).not.toContain('aria-label="任务范围"');
-  expect(html).toContain("高级选项");
+  expect(html.match(/aria-label="参考数据"/g)).toHaveLength(1);
+  expect(html).toContain('class="chat-source chat-source-footer"');
+  expect(html).toContain('value="recorded"');
+  expect(html).toContain('value="configured"');
+  expect(html).toContain('value="fixture"');
+  expect(html).not.toContain("chat-advanced-options");
 });
 it("does not say no game started when an accepted goal outlives its cancelled model turn", () => {
   test.goals = [goal("own-goal", "session-a", "waiting")];

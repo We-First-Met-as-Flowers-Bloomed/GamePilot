@@ -1,0 +1,354 @@
+.slot-dashboard {
+  max-width: 1280px;
+  margin-inline: auto;
+}
+.slot-dashboard-header,
+.slot-dashboard-tools,
+.slot-workspace-heading,
+.slot-account-heading,
+.slot-account-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.slot-dashboard-header {
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.slot-dashboard-header .eyebrow {
+  color: var(--muted);
+  font-size: var(--font-xs);
+  letter-spacing: 0.08em;
+}
+.slot-dashboard-header h1 {
+  margin: 8px 0;
+  font-size: 26px;
+  letter-spacing: -0.03em;
+}
+.slot-dashboard-header .intro {
+  margin: 0;
+}
+.slot-dashboard-tools {
+  flex-shrink: 0;
+}
+.slot-dashboard-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 24px;
+  padding: 16px 0;
+  border-block: 1px solid var(--line);
+}
+.slot-dashboard-counts > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-inline: 20px;
+  border-right: 1px solid var(--line);
+}
+.slot-dashboard-counts > div:first-child {
+  padding-left: 0;
+}
+.slot-dashboard-counts > div:last-child {
+  border-right: 0;
+}
+.slot-dashboard-counts dt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+.slot-dashboard-counts dd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+.slot-dashboard-counts dd span {
+  color: var(--muted);
+  font-size: var(--font-xs);
+  font-weight: 400;
+  letter-spacing: normal;
+}
+.slot-workspace-heading {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.slot-workspace-heading > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+}
+.slot-workspace-heading h2 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: var(--font-md);
+}
+.slot-workspace-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+}
+.slot-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+.slot-account-card {
+  min-width: 0;
+  overflow: hidden;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+.slot-account-card:is([data-state="running"], [data-state="queued"]) {
+  border-color: var(--accent-border);
+}
+.slot-account-heading {
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.slot-account-heading > div {
+  min-width: 0;
+}
+.slot-number {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  background: var(--canvas);
+  font: 13px var(--font-mono);
+}
+.slot-account-heading .slot-game-name {
+  margin: 0 0 4px;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+}
+.slot-account-heading h3 {
+  margin: 0;
+  font-size: var(--font-md);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.slot-enabled {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding-top: 4px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: var(--font-xs);
+}
+.slot-enabled::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.slot-enabled.is-enabled {
+  color: var(--success);
+}
+.slot-game-binding strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+.slot-game-binding strong > span,
+.slot-game-binding p {
+  color: var(--muted);
+  font-size: var(--font-xs);
+  font-weight: 400;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.slot-game-binding strong > span {
+  margin-left: 4px;
+}
+.slot-game-binding p {
+  margin: 4px 0 0;
+}
+.slot-account-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.slot-record-status {
+  min-width: 0;
+}
+.slot-record-label {
+  color: var(--muted);
+  font-size: var(--font-xs);
+}
+.slot-record-status p {
+  margin: 4px 0 0;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.slot-record-status small,
+.slot-account-actions small,
+.slot-execution-meta {
+  color: var(--muted);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.slot-record-status small {
+  display: block;
+  margin-top: 4px;
+}
+.slot-account-card:is([data-state="unknown"], [data-state="failed"])
+  .slot-record-status
+  p {
+  color: var(--warning);
+}
+.slot-account-card:is([data-state="running"], [data-state="queued"])
+  .slot-record-status
+  p {
+  color: var(--accent);
+}
+.slot-account-actions {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 48%;
+}
+.slot-account-actions .button {
+  white-space: nowrap;
+}
+.slot-account-actions small {
+  text-align: right;
+}
+.slot-dashboard .slot-stop {
+  color: var(--danger);
+  border-color: var(--danger-border);
+  background: var(--danger-light);
+}
+.slot-execution-details {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.slot-execution-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 0 0;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+.slot-execution-details > summary::-webkit-details-marker {
+  display: none;
+}
+.slot-execution-details[open] > summary svg {
+  transform: rotate(180deg);
+}
+.slot-execution-meta {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+}
+.slot-execution-meta p {
+  margin: 4px 0;
+}
+.slot-execution-body {
+  padding-top: 16px;
+}
+.slot-execution-body h4 {
+  margin: 0 0 12px;
+  font-size: var(--font-sm);
+}
+.slot-dashboard :is(button, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.slot-dashboard-empty {
+  padding: 48px 24px;
+  text-align: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.slot-dashboard-empty > svg {
+  color: var(--accent);
+}
+.slot-dashboard-empty h3 {
+  margin: 20px 0 12px;
+  font-size: var(--font-md);
+}
+.slot-dashboard-empty p {
+  margin: 0 0 24px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+@media (max-width: 1100px) {
+  .slot-dashboard-header {
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .slot-dashboard-counts > div {
+    padding-inline: 12px;
+  }
+  .slot-dashboard-counts dd {
+    flex-wrap: wrap;
+  }
+  .slot-account-card {
+    padding: 16px;
+  }
+}
+@media (max-width: 950px) {
+  .slot-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .slot-workspace-heading {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 600px) {
+  .slot-dashboard-counts {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .slot-dashboard-counts > div {
+    justify-content: space-between;
+    padding: 0;
+    border: 0;
+  }
+  .slot-account-summary {
+    flex-wrap: wrap;
+  }
+  .slot-account-actions {
+    max-width: 100%;
+    align-items: flex-start;
+  }
+}

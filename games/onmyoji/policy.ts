@@ -1,4 +1,4 @@
-import type { Frame, Rect } from "../../packages/runtime/device";
+import type { Frame, Rect, TextHit } from "../../packages/runtime/device";
 export function findText(frame: Frame, pattern: RegExp, roi?: Rect) {
   return frame.texts.find(
     (h) =>
@@ -44,6 +44,17 @@ export const hasOneKeyChores = (f: Frame) =>
   isCourtyardTasks(f) &&
   !!findText(f, /^一键$/, [1620, 830, 260, 170]) &&
   !!findText(f, /^完成$/, [1620, 900, 260, 170]);
+/** The chores page remembers the last-open tab; an event tab hides the one-key
+ * button. The 日常 tab anchor sits on the right edge whenever it is tappable. */
+export function courtyardTasksDailyTabPoint(f: Frame): [number, number] | null {
+  if (!isCourtyardTasks(f)) return null;
+  const hit = findText(f, /^日常$/, [1580, 100, 340, 260]);
+  if (!hit) return null;
+  return [
+    Math.round(hit.box[0] + hit.box[2] / 2),
+    Math.round(hit.box[1] + hit.box[3] / 2),
+  ];
+}
 export const isChoreClaimResult = (f: Frame) =>
   !!findText(f, /领取成功/, [320, 0, 600, 180]) &&
   !!findText(f, /完成啦|点击空白处关闭/, [0, 400, 1200, 680]);
@@ -235,10 +246,13 @@ export function dailyGiftTabPoint(f: Frame): [number, number] | null {
 // establish the daily list before the only permitted free claim can execute.
 export const isGiftHouse = (f: Frame) => dailyGiftTabPoint(f) !== null;
 
+/** 2026-10-14 更新后的商店街：底部为周边屋/寄售屋/插画屋/秘卷屋/秘魂屋/皮肤屋/杂货铺/
+ *  魂玉屋/礼包屋。三个导航锚点仍然必须同时命中（缺一即停止后续商店输入），
+ *  只放过实测到的 OCR 掉尾字：失败帧把「周边屋」读成「周边」（0.999，箱字丢失）。 */
 export const isShopDistrict = (f: Frame) =>
-  !!findText(f, /^周边屋$/, [0, 930, 280, 150]) &&
-  !!findText(f, /^魂玉屋$/, [1350, 930, 300, 150]) &&
-  !!findText(f, /^礼包屋$/, [1550, 930, 300, 150]);
+  !!findText(f, /^周边屋?$/, [0, 930, 280, 150]) &&
+  !!findText(f, /^魂玉屋?$/, [1350, 930, 300, 150]) &&
+  !!findText(f, /^礼包屋?$/, [1550, 930, 300, 150]);
 
 export const isDailyGiftList = (f: Frame) =>
   !!findText(f, /^每日礼包$/, [180, 150, 320, 180]) &&
@@ -293,6 +307,15 @@ export const isDailyGiftDetail = (f: Frame) =>
 export const isGuild = (f: Frame) =>
   !!findText(f, /^阴阳[寮察]$/, [600, 0, 700, 140]);
 
+/** 2026-10-14 周三更新后的「寮境」页面（左上角是返回，右侧竖排 寮境/装扮）。
+ *  它的底部功能栏变成神社/祈愿/结界/寮信息，庭院锚点（探索/召唤/式神录）全部消失：
+ *  实拍帧的离线 OCR 只能读出右下角「寮信息」（0.848）与左侧集体任务面板。
+ *  停在寮境时所有庭院技能都会一直等到超时，必须先返回上一层。 */
+export const isGuildRealm = (f: Frame) =>
+  !!findText(f, /^寮信息$/, [1560, 900, 360, 180]) &&
+  !!findText(f, /^集体任务/, [0, 150, 340, 640]) &&
+  !isCourtyard(f);
+
 export const isShrine = (f: Frame) =>
   !!findText(f, /^.?神社$/, [1650, 430, 260, 360]) &&
   (!!findText(f, /^狩猎战$/, [200, 500, 420, 260]) ||
@@ -319,10 +342,89 @@ export const isCollectiveTaskPage = (f: Frame) =>
   !!findText(f, /^集体任务[！!]?$/, [650, 0, 700, 180]) &&
   !!findText(f, /今日已完|已达上限|领取奖励|提交/, [150, 500, 1550, 420]);
 
+/**
+ * 「退出游戏」确认框：误触返回键就会弹出来（2026-10-15 实测）。
+ *
+ * 危险点在于**框后面的庭院仍然会被 isCourtyard 认出来**，于是技能会以为一切正常、
+ * 把点击打在框上。所以必须单独识别，而且只点「取消」——「确认」永远不碰。
+ * 同时要求「取消」和「确认」都在，避免把别的对话框当成它。
+ */
+export function quitGameCancelPoint(f: Frame): [number, number] | undefined {
+  const title = findText(f, /^退出游戏$/, [500, 350, 500, 120]);
+  const ask = findText(f, /确定要退出游戏/, [450, 450, 500, 120]);
+  const cancel = findText(f, /^取消$/, [1050, 590, 260, 120]);
+  const confirm = findText(f, /^确认$/, [1240, 590, 260, 120]);
+  if (!title || !ask || !cancel || !confirm) return undefined;
+  return [cancel.box[0] + cancel.box[2] / 2, cancel.box[1] + cancel.box[3] / 2];
+}
+
+/**
+ * 逢魔之时页（2026-10-16 实机取证，lane-a：标题 + 今日挑战次数 2/2 + 现世逢魔 0/4）。
+ *
+ * 存在的意义：`courtyard()` 只给"委派页/好友页/探索页/邮箱…"留了退路，
+ * **没有逢魔之时**——一旦技能或人的点击把游戏带进这一页，`courtyard()` 就永远回不到庭院，
+ * 整条阴阳师日常报「进入庭院检查每日签到失败」（当天 lane-a 就是这么卡的 ✓）。
+ * 只认标题 + 底部两处稳定元素，避免命中探索页里同名的入口文字。
+ */
+export const isMakaiHourPage = (f: Frame) =>
+  !!findText(f, /^逢魔之时$/, [600, 0, 700, 120]) &&
+  (!!findText(f, /今日挑战次数/, [560, 60, 560, 110]) ||
+    !!findText(f, /现世逢魔/, [1400, 960, 500, 120]));
+
+/**
+ * 「领取成功」签到奖励弹窗（2026-10-16 实机取证，lane-a）。
+ *
+ * 现场帧写着「领取成功」「第839签 半吉」「点击空白处关闭」——**奖励已经发放**，
+ * 但弹窗盖住庭院，`courtyard()` 因此认不出庭院，整条阴阳师日常报
+ * "进入庭院检查每日签到失败"（当天两个账号都被这一句挡住）。
+ *
+ * 按仓库既有范式处理（文字确权 + 固定关闭点）：
+ *  - 三处文字**全部**命中才认，缺一不认（避免把别的弹窗误判成签到奖励）；
+ *  - 只点右上角的 **✕**（帧里可点的关闭控件），**绝不**点空白区或奖励区；
+ *  - 关闭点是固定坐标，由上面三处文字担保。
+ */
+export function signInRewardClosePoint(f: Frame): [number, number] | undefined {
+  // 「领取成功」是会淡出的标题（实测：稍后再看就没了），所以拿三处**稳定**元素确权：
+  // 第N签 + 累计奖励 + 底部提示。缺一不认。
+  const ordinal = findText(f, /^第\d+签$/, [520, 130, 380, 110]);
+  const totals = findText(f, /^累计奖励$/, [560, 660, 320, 120]);
+  const hint = findText(f, /点击空白处关闭/, [600, 930, 700, 150]);
+  if (!ordinal || !totals || !hint) return undefined;
+  // 1280×720 实测里 ✕ 位于 (880,105)，换算到 1920×1080 约 (1320,158)。
+  return [1320, 158];
+}
+
+/**
+ * 式神委派页（探索 → 式神委派）。
+ *
+ * 存在的意义是**认出"已经在游戏里"**：2026-10-15 实测，游戏停在委派页时 `loggedIn`
+ * 的白名单里没有它 → login 判定"没进游戏" → 重启游戏 → 启动等待超时 → 整条日常报废。
+ * 只认标题全等，避免命中探索页底部那行「式神委派秘闻副本地域鬼王…」的合并文本。
+ */
+export const isShikigamiDispatch = (f: Frame) =>
+  !!findText(f, /^式神委派$/, [100, 0, 600, 130]);
+/** 好友页（吉闻 + 好友计数），人可能手动停在上面。 */
+export const isFriendPage = (f: Frame) =>
+  !!findText(f, /^好友$/, [850, 40, 320, 90]) &&
+  !!findText(f, /好友[：:]\s*\d+\s*\/\s*\d+/, [200, 180, 700, 120]);
 export const collectiveTaskTarget = (f: Frame) =>
   isCollectiveTaskPage(f)
     ? findText(f, /^提供N阶式神1个$/, [200, 150, 900, 600])
     : undefined;
+
+/**
+ * 新版集体任务三张卡的按钮（2026-10-15 实测）：
+ *  - 「领取奖励」= 已完成的指定任务，零成本，可以领；
+ *  - 「提交」= 选卡，要提供 N 阶式神（消耗式神），是否做由大人决定，这里只识别不点击。
+ * 两者都只在确认是集体任务页时才返回，避免在别的弹窗上误判。
+ */
+export const collectiveClaimAction = (f: Frame) =>
+  isCollectiveTaskPage(f)
+    ? findText(f, /^领取奖励$/, [150, 500, 1550, 420])
+    : undefined;
+
+export const collectiveSubmitAction = (f: Frame) =>
+  isCollectiveTaskPage(f) ? findText(f, /^提交$/, [150, 500, 1550, 420]) : undefined;
 
 export function collectiveProgress(f: Frame) {
   const hit = findText(
@@ -455,8 +557,38 @@ export function hanaPromotionClosePoint(f: Frame): [number, number] | null {
   return [1700, 900];
 }
 
-export function hanaClaimAction(f: Frame) {
-  if (!isHanaPage(f)) return undefined;
+/**
+ * 过期活动邀请函浮层：2026-10-15 实测「诞生庆典·邀请函」（活动期 10.10–10.12，过期后
+ * 仍会挂在庭院上）把庭院事务入口挡住，`check-in` 因此报「画面未进入预期状态」。
+ * 它的关闭按钮是无文字的右上角 ×，只能按实测坐标点。
+ *
+ * 沿用花合战宣传页同样的安全约定：画面上只要出现确认/购买/消耗类文字就一律不动，
+ * 宁可停下等人核对，也不赌一个坐标。
+ */
+export function promoInvitationClosePoint(f: Frame): [number, number] | null {
+  if (
+    centralConfirmation(f) ||
+    findText(f, /^(确认|确定)$/, [650, 400, 650, 400]) ||
+    findText(
+      f,
+      /购买|支付|消耗|密码|验证码|实名认证|扫码登录|继续刚才的战斗|退出战斗/,
+    )
+  )
+    return null;
+  const title = findText(f, /邀请函$/, [900, 300, 700, 140]);
+  const enter = findText(f, /^前往庆典$/, [1500, 350, 300, 450]);
+  // 活动期形如 10.10(20:00) / 10.10（20:00）。
+  const period = findText(
+    f,
+    /^\d{2}\.\d{2}\s*[（(]\d{2}:\d{2}[）)]$/,
+    [1450, 200, 380, 150],
+  );
+  if (!title || !enter || !period) return null;
+  if ([title, enter, period].some((hit) => hit.score < 0.9)) return null;
+  return [1801, 176];
+}
+
+export function hanaClaimAction(f: Frame) {  if (!isHanaPage(f)) return undefined;
   const joined = findText(f, /^全部领取$/, [1200, 650, 650, 400]);
   if (joined) return joined;
   const top = findText(f, /^全部$/, [1250, 800, 400, 220]);
@@ -508,10 +640,26 @@ export const isTrainingPage = (f: Frame) =>
   !!findText(f, /^式神育成$/, [0, 0, 450, 180]) &&
   !!findText(f, /可寄养式神|我的寄养/, [1500, 0, 400, 280]);
 
-export function ownTrainingEntry(f: Frame): [number, number] | null {
-  const left = findText(f, /^结界防守$/, [300, 300, 400, 500]);
+/**
+ * 结界页的三块木牌：左「结界防守」、中「式神育成」、右「结界卡」。
+ *
+ * 2026-10-15 lane-b（账号二）实测：木牌会随场景轻微摆动，竖排美术字 OCR 时好时坏——
+ * 左牌被读成「结界陵守」（防→陵，0.798），中牌整块读不出。所以：
+ *  - 判据容忍已观测到的 OCR 变体（只认「防守」会让整块育成入口找不到）；
+ *  - 「是不是结界页」只靠左右两块能读到的牌子判断，中间入口用两者中点推算（见 ownTrainingEntry）。
+ */
+export const isRealmSignsPage = (f: Frame) =>
+  !!findText(f, /^结界[防陵]守$/, [300, 300, 400, 500]) &&
+  !!findText(f, /^(结界[卡上]|熊界卡)$/, [1100, 300, 450, 500]);
+
+const realmSigns = (f: Frame) => ({
+  left: findText(f, /^结界[防陵]守$/, [300, 300, 400, 500]),
   // Both variants were observed on the two realm skins; require the left sign too.
-  const right = findText(f, /^(结界[卡上]|熊界卡)$/, [1100, 300, 450, 500]);
+  right: findText(f, /^(结界[卡上]|熊界卡)$/, [1100, 300, 450, 500]),
+});
+
+export function ownTrainingEntry(f: Frame): [number, number] | null {
+  const { left, right } = realmSigns(f);
   if (!left || !right || Math.abs(left.box[1] - right.box[1]) > 100)
     return null;
   return [
@@ -604,3 +752,104 @@ export const isVictory = (f: Frame) =>
   !!findText(f, /^[胜生]利$/, [900, 80, 720, 420]) &&
   !!findText(f, /本次评分/, [1050, 800, 600, 190]) &&
   !findText(f, /失败|战败/, [800, 80, 900, 450]);
+
+/** 胧车（八岐大蛇·悲鸣）挂机任务卡：标题是最强锚点，覆盖两页卡片与结算弹窗。 */
+export const oborogurumaTitle = (f: Frame) =>
+  findText(f, /八岐大蛇/, [420, 30, 1500, 320]);
+export const isOborogurumaActivity = (f: Frame) =>
+  !!findText(f, /胧车探索/, [0, 0, 500, 160]);
+export const isOborogurumaCard = (f: Frame) =>
+  !!oborogurumaTitle(f) &&
+  !!(
+    findText(f, /^下一步$/) ||
+    findText(f, /^出发$/) ||
+    // 金色装饰按钮的美术字 OCR 常读不出；用两页各自必有、OCR 实测可读的
+    // 面板标签补足判据（第一页「使用胧车」，第二页「累计消耗」）。
+    findText(f, /^使用胧车$/) ||
+    findText(f, /^累计消耗$/)
+  );
+/** 自动上阵提示：仅当三个锚点齐全才允许点确定，避免把其他确认弹窗当成配置。 */
+export const oborogurumaAutoEquipDialog = (f: Frame) =>
+  findText(f, /自动上阵/, [420, 260, 1080, 480]) &&
+  findText(f, /^重新配置$/, [560, 560, 420, 220]) &&
+  findText(f, /^确定$/, [1020, 560, 420, 220]);
+export const oborogurumaNextStep = (f: Frame) =>
+  isOborogurumaCard(f) ? findText(f, /^下一步$/) : undefined;
+export const oborogurumaDepart = (f: Frame) =>
+  isOborogurumaCard(f) ? findText(f, /^出发$/) : undefined;
+/** 卡片第二页左侧的加成入口；庭院同名词在固定 ROI 内，用卡片锚点区分。 */
+export const oborogurumaBuffButton = (f: Frame) =>
+  isOborogurumaCard(f) ? findText(f, /^加成$/) : undefined;
+/** 加成面板：多行剩余天数且无出发按钮；行文本必须含八岐大蛇。 */
+export const isOborogurumaBuffPanel = (f: Frame) =>
+  !findText(f, /^出发$/) &&
+  !findText(f, /^下一步$/) &&
+  f.texts.filter((h) => h.score >= 0.7 && /^\d{1,3}天$/.test(h.text)).length >=
+    3;
+export const oborogurumaBuffRow = (f: Frame) =>
+  isOborogurumaBuffPanel(f) ? findText(f, /八岐大蛇/) : undefined;
+/** 行内剩余天数角标；用于向右定位该行的使用按钮。 */
+export function oborogurumaBuffChip(f: Frame, row: TextHit) {
+  return f.texts
+    .filter(
+      (h) =>
+        h.score >= 0.7 &&
+        /^\d{1,3}天$/.test(h.text) &&
+        Math.abs(
+          h.box[1] + h.box[3] / 2 - (row.box[1] + row.box[3] / 2),
+        ) <=
+          row.box[3] &&
+        h.box[0] > row.box[0],
+    )
+    .sort((a, b) => a.box[0] - b.box[0])
+    .at(-1);
+}
+/** 次数读数：优先整段 N/M，其次限定在卡片下半区的组合命中。 */
+export function oborogurumaCount(
+  f: Frame,
+): { done: number; total: number; box: [number, number, number, number] } | null {
+  const parse = (hit: TextHit) => {
+    const match = hit.text.replace(/\s/g, "").match(/(\d{1,3})\/(\d{1,3})$/);
+    if (!match) return null;
+    const done = Number(match[1]);
+    const total = Number(match[2]);
+    return Number.isSafeInteger(done) &&
+      Number.isSafeInteger(total) &&
+      total > 0 &&
+      done >= 0 &&
+      done <= total
+      ? {
+          done,
+          total,
+          box: [hit.box[0], hit.box[1], hit.box[2], hit.box[3]] as [
+            number,
+            number,
+            number,
+            number,
+          ],
+        }
+      : null;
+  };
+  const whole = f.texts.find(
+    (h) => h.score >= 0.7 && /^(\d{1,3})\/(\d{1,3})$/.test(h.text.replace(/\s/g, "")),
+  );
+  if (whole) return parse(whole);
+  const combined = f.texts
+    .filter((h) => h.score >= 0.7 && /(\d{1,3})\/(\d{1,3})/.test(h.text))
+    .map((h) => parse(h))
+    .find(Boolean);
+  return combined ?? null;
+}
+/** 挂机结算弹窗：八岐大蛇标题 + 探索结束/完成 + 确认，三者齐全才可视为已完成轮次。 */
+/**
+ * 结算页（探索完成）。2026-10-15 实机：标题「探索完成」在 y≈83、确认按钮在 x≈1502，
+ * 旧的 ROI（y≥100 / x≤1160）两条都落空，导致结算页根本认不出来、技能转而去庭院然后失败。
+ */
+export const oborogurumaSettlementConfirm = (f: Frame) =>
+  oborogurumaTitle(f)
+    ? findText(f, /^确认$/, [1350, 760, 480, 240])
+    : undefined;
+export const oborogurumaSettlement = (f: Frame) =>
+  !!oborogurumaTitle(f) &&
+  !!findText(f, /探索(结束|完成)/, [400, 0, 1200, 800]) &&
+  !!oborogurumaSettlementConfirm(f);

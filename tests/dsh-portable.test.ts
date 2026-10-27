@@ -7,7 +7,10 @@ import {
   portableDshEntry,
 } from "../scripts/dsh-portable-runtime.mjs";
 let prepared = false;
-const directory = resolve("integrations/deepseek-harness/runtime");
+const directory = resolve(
+  process.env.GAMEPILOT_DSH_TEST_RUNTIME ??
+    "integrations/deepseek-harness/runtime",
+);
 try {
   await access(join(directory, "runtime-build-info.json"));
   prepared = true;

@@ -15,7 +15,11 @@ export function AgentRecordFacts({ records }: { records?: AgentRunSummary[] }) {
   return (
     <section className="agent-record-facts" aria-label="宿主核对结果">
       {records.map((record) => (
-        <article key={record.requestId}>
+        <article
+          key={record.requestId}
+          data-recorded-status={record.recordedStatus}
+        >
+          <span className="badge agent-host-badge">宿主核验</span>
           <strong>
             {record.laneId ?? "原账号"} ·{" "}
             {statuses[record.recordedStatus] ?? "结果待核对"}

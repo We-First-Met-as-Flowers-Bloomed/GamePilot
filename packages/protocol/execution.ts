@@ -10,6 +10,7 @@ export interface ExecutionRequest {
   batchId?: string;
 }
 export interface ExecutionRecord extends ExecutionRequest {
+  observations?: import("./execution-observation").GameExitObservation[];
   startupFault?: import("./startup-fault").StartupFault;
   resolution?: { action: "abandoned"; at: string; note: string };
   version: 1;

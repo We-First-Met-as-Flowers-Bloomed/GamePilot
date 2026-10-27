@@ -2,9 +2,10 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import type { ExecutionRecord } from "../protocol/execution";
+import { validExitObservation } from "../protocol/execution-observation";
 import {
   taskRecordKey,
-  validateTaskRecord,
+  readTaskRecord,
   type TaskRecord,
 } from "../protocol/task-record";
 
@@ -29,7 +30,7 @@ export async function readEvidence(data: string) {
         );
         let key: string;
         if (directory === "task-runs") {
-          const task = validateTaskRecord(raw);
+          const task = readTaskRecord(raw);
           key = taskRecordKey(task);
           if (createHash("sha256").update(key).digest("hex") + ".json" !== name)
             throw Error("标识不匹配");
@@ -60,6 +61,19 @@ export async function readEvidence(data: string) {
           if (createHash("sha256").update(key).digest("hex") + ".json" !== name)
             throw Error("标识不匹配");
           requests.push(raw);
+          if (
+            raw.observations !== undefined &&
+            (!Array.isArray(raw.observations) ||
+              raw.observations.length > 16 ||
+              raw.observations.some(
+                (o: unknown) => !validExitObservation(o, raw),
+              ) ||
+              new Set(raw.observations.map((o: { gameId: string }) => o.gameId))
+                .size !== raw.observations.length)
+          )
+            errors.push(
+              `${directory}/${name}: 退出观察字段无效，不能作为验收证明`,
+            );
         }
       } catch {
         errors.push(`${directory}/${name}: 记录无效或正在变更，需重新采集`);

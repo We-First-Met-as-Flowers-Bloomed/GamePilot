@@ -35,7 +35,6 @@ import {
 
 export type { DshEvent } from "./protocol";
 export const DSH_VERSION = "0.2.1-alpha.1";
-export const DSH_SOURCE_COMMIT = "5badb15009ae1756c3afe0ae0cef1faafc290ccc";
 export interface DshToolSpec {
   name: string;
   description: string;

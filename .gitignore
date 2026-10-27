@@ -9,7 +9,6 @@ artifacts/
 games/onmyoji/resources/model/ocr/*.onnx
 games/onmyoji/resources/model/ocr/keys.txt
 
-# User-supplied game templates and local runtime state
+# Local visual assets, captures and account state are outside the public source snapshot.
 games/onmyoji/resources/image/*.png
 .gamepilot/
-

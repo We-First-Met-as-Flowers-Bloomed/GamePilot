@@ -3,7 +3,10 @@ import type {
   TaskStepRecord,
 } from "../packages/protocol/task-record";
 import type { TaskResultSummary } from "../packages/protocol/task-result-summary";
-import { validArknightsEvidence } from "./arknights/evidence";
+import {
+  validArknightsEvidence,
+  isLegacyCopilotEvidence,
+} from "./arknights/evidence";
 import { historyStepStatus } from "./agent-history";
 import { games } from "./registry";
 
@@ -47,7 +50,11 @@ export function summarizeTaskResult(record: TaskRecord): TaskResultSummary {
     if (["failed", "unknown", "cancelled"].includes(status))
       issues.push({
         skillId: step.skillId,
-        message: status !== step.status ? "原生完成状态未确认" : step.message,
+        message: isLegacyCopilotEvidence(step.result?.arknights)
+          ? "旧版作业只记录任务链结束，缺少冻结关卡、逐场三星及前后账号/主页证明；结果仍需核对。"
+          : status !== step.status
+            ? "原生完成状态未确认"
+            : step.message,
       });
     if (["pending", "not-run"].includes(status) && step.result?.arknights)
       issues.push({
@@ -193,6 +200,71 @@ export function summarizeTaskResult(record: TaskRecord): TaskResultSummary {
           : `购买确认 ${stats.purchaseConfirmations} 次`,
       shoppingNotes.join(""),
     );
+  }
+  const infrastructure = find("infrastructure");
+  if (infrastructure) {
+    const reception = evidence(infrastructure, "Infrast")?.statistics
+      ?.infrastructure?.reception;
+    const nodes = new Set(reception?.observedNodes ?? []);
+    const operations = [
+      {
+        id: "message-board",
+        label: "留言板状态",
+        observed: nodes.has("InfrastReceptionMessageBoard-Received"),
+        value: nodes.has("InfrastReceptionMessageBoard-CouldReceive")
+          ? "已观察到本次收取动作及已收取状态"
+          : "已观察到已收取状态",
+        note: "已收取状态可能来自此前领取，不据此累计本次奖励。",
+      },
+      {
+        id: "self-clue",
+        label: "自产线索领取",
+        observed: nodes.has("GetSelfClue"),
+        value: "已观察到领取动作",
+      },
+      {
+        id: "insert",
+        label: "线索放入",
+        observed: false,
+        value: nodes.has("InfrastClueQuickInsert")
+          ? "已识别快捷放入入口，结果未核验"
+          : "未记录完成证据",
+        note: "入口识别回调发生在实际放入之前，不能证明放入成功。",
+      },
+      {
+        id: "send",
+        label: "重复线索赠送",
+        observed: nodes.has("InfrastClueQuickSendDuplicates"),
+        value: "已观察到赠送动作",
+      },
+      {
+        id: "exchange",
+        label: "结束交流收尾",
+        observed: nodes.has("EndOfClueExchangeClose"),
+        value: "已观察到交流弹窗收尾",
+        note: "弹窗收尾不等于本次奖励数量已核验。",
+      },
+    ];
+    for (const operation of operations) {
+      add(
+        infrastructure,
+        `reception-${operation.id}`,
+        `会客室 · ${operation.label}`,
+        operation.observed || operation.id === "insert"
+          ? operation.value
+          : "未记录完成证据",
+        operation.note ??
+          (operation.observed
+            ? "原生动作回调，不代表奖励到账数量。"
+            : "可能未启用或本轮没有可处理内容；不能仅凭基建结束推断该项完成。"),
+      );
+      if (!operation.observed) summary.items.at(-1)!.status = "unknown";
+    }
+    if (reception?.errorObserved)
+      summary.issues.push({
+        skillId: "infrastructure",
+        message: "会客室子任务报告异常，已观察的动作保留，其余结果待核对。",
+      });
   }
   const award = find("award");
   if (award) {

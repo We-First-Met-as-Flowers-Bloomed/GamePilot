@@ -355,10 +355,12 @@ it("waits for the realm signs to become readable instead of exhausting blind cli
     async () => {},
   );
   const internal = daily as unknown as {
-    openGuild(signal: AbortSignal): Promise<void>;
+    openGuild(signal: AbortSignal): Promise<Frame>;
     openFosterTraining(signal: AbortSignal): Promise<Frame>;
   };
-  vi.spyOn(internal, "openGuild").mockResolvedValue();
+  vi.spyOn(internal, "openGuild").mockResolvedValue(
+    frame(["阴阳寮", 934, 35], ["狩猎战", 14, 375]),
+  );
   const result = await internal.openFosterTraining(
     new AbortController().signal,
   );

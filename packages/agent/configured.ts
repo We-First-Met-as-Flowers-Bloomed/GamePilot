@@ -3,6 +3,8 @@ import { boundedRead } from "./read-file";
 import { readRecordedHistory } from "./recorded";
 import { join } from "node:path";
 import { validateDeviceLanes } from "../protocol";
+import { agentLaneAlias } from "../protocol/lane-alias";
+import { plannerOnmyojiIdentity } from "../protocol/onmyoji-identity";
 import { validateArknightsProfiles } from "../../games/arknights/config";
 import {
   plannerProfile,
@@ -53,7 +55,7 @@ export async function readConfiguredSnapshot(
       lanes: {
         version: 1,
         lanes: lanes.lanes.map((l, i) => ({
-          id: `lane-${String.fromCharCode(97 + i)}`,
+          id: agentLaneAlias(i),
           name: `槽位 ${i + 1}`,
           managerPath: "",
           instance: l.instance,
@@ -67,6 +69,9 @@ export async function readConfiguredSnapshot(
           onmyoji: {
             enabled: l.onmyoji.enabled,
             routine: plannerRoutine(l.onmyoji.routine, "onmyoji"),
+            ...(l.onmyoji.identity
+              ? { identity: plannerOnmyojiIdentity(l.onmyoji.identity) }
+              : {}),
           },
         })),
       },

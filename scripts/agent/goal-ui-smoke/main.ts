@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from "electron";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { createFixtureSnapshot } from "../../../packages/agent/fixture";
@@ -25,12 +25,21 @@ const result = {
     "Full production renderer App/Chat/GoalCards and CSS, sandboxed Electron and fixed synthetic IPC. This verifies desktop components, not production main admission, native game execution or a model.",
   checks: [] as string[],
   screenshots: [] as { name: string; width: number }[],
+  accessibility: [] as unknown[],
+  captureRetries: [] as unknown[],
   passed: false,
 };
 let window: BrowserWindow;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const js = (source: string) =>
-  window.webContents.executeJavaScript(source, true);
+const js = async (source: string) => {
+  try {
+    return await window.webContents.executeJavaScript(source, true);
+  } catch (error) {
+    throw Error(
+      `Renderer script failed: ${source.slice(0, 450)} (${String(error)})`,
+    );
+  }
+};
 function check(name: string, condition: unknown) {
   assert.ok(condition, name);
   result.checks.push(name);
@@ -184,6 +193,8 @@ const goals: GoalView = {
     makeGoal("goal-b", "chat-b", "独立会话自己的游戏目标"),
   ],
 };
+let releaseInitialSnapshot: (() => void) | undefined;
+let holdInitialSnapshot = true;
 const goal = () => goals.goals[0];
 const events = [
   {
@@ -274,7 +285,13 @@ const methods: Record<string, (...args: any[]) => unknown> = {
     cursor: events.at(-1)!.seq,
     hasMore: false,
   }),
-  goalSnapshot: () => goals,
+  goalSnapshot: async () => {
+    if (holdInitialSnapshot)
+      await new Promise<void>((resolve) => {
+        releaseInitialSnapshot = resolve;
+      });
+    return goals;
+  },
   selectChat: (id: string) => {
     assert.ok(chat.sessions.some((s) => s.id === id));
     chat.selectedSessionId = id;
@@ -303,26 +320,93 @@ const methods: Record<string, (...args: any[]) => unknown> = {
     return stopped;
   },
 };
-async function screenshot(name: string, width: number) {
-  window.setContentSize(width, 900);
-  await delay(180);
-  await js(
-    '{const trace=document.querySelector("#chat-trajectory-panel:not([hidden]) [data-trajectory-goal-id=goal-a]"); const target=trace?.querySelector(".agent-event-timeline li:last-child") ?? document.querySelector(".chat-goal-card[data-goal-id=goal-stop]") ?? document.querySelector(".chat-goal-card");target?.scrollIntoView({block:trace?"end":"center"});}',
+async function auditAccessibility(name: string) {
+  if (!process.env.GAMEPILOT_UI_AXE) return;
+  if (!(await js("typeof axe !== 'undefined' && axe.version === '4.10.3'")))
+    await js(await readFile(process.env.GAMEPILOT_UI_AXE, "utf8"));
+  const scan = await js(
+    "axe.run(document, {resultTypes:['violations','incomplete']}).then(result=>({version:result.testEngine.version, violations:result.violations, incomplete:result.incomplete}))",
   );
+  await writeFile(
+    join(directory, `${name}.axe.json`),
+    JSON.stringify(scan, null, 2),
+  );
+  const severe = scan.violations.filter((item: { impact: string }) =>
+    ["critical", "serious"].includes(item.impact),
+  );
+  result.accessibility.push({
+    name,
+    version: scan.version,
+    violations: scan.violations.length,
+    severe: severe.map((item: { id: string }) => item.id),
+    incomplete: scan.incomplete,
+  });
+  check(
+    `${name}: no critical or serious accessibility violations`,
+    severe.length === 0,
+  );
+}
+async function captureFrame(name: string) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await window.webContents.capturePage();
+    } catch (error) {
+      if (!String(error).includes("UnknownVizError") || attempt === 2)
+        throw error;
+      result.captureRetries.push({
+        name,
+        attempt: attempt + 1,
+        reason: "UnknownVizError",
+      });
+      await delay(120);
+    }
+  }
+  throw Error(`Screenshot unavailable: ${name}`);
+}
+async function screenshot(
+  name: string,
+  width: number,
+  height = 900,
+  panelTop = false,
+) {
+  window.setContentSize(width, height);
+  await delay(180);
+  if (panelTop)
+    await js(
+      'document.querySelectorAll("#workspace-panel, #workspace-panel *").forEach(el=>{if(el.scrollHeight>el.clientHeight)el.scrollTop=0})',
+    );
+  else
+    await js(
+      '{const trace=document.querySelector("#chat-trajectory-panel:not([hidden]) [data-trajectory-goal-id=goal-a]"); const target=trace?.querySelector(".agent-event-timeline li:last-child") ?? document.querySelector(".chat-goal-card[data-goal-id=goal-stop]") ?? document.querySelector(".chat-goal-card");target?.scrollIntoView({block:trace?"end":"center"});}',
+    );
   window.webContents.invalidate();
   await delay(120);
   const layout = await js(
-    '({page:document.documentElement.scrollWidth<=innerWidth,cards:[...document.querySelectorAll(".chat-goal-card,[data-trajectory-goal-id]")].every(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&el.scrollWidth<=el.clientWidth+1}),width:innerWidth})',
+    '({page:document.documentElement.scrollWidth<=innerWidth,cards:[...document.querySelectorAll(".chat-goal-card,[data-trajectory-goal-id]")].filter(el=>el.getClientRects().length).every(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&el.scrollWidth<=el.clientWidth+1}),width:innerWidth})',
   );
   check(
     `no horizontal overflow at ${width}px (${name})`,
     layout.page && layout.cards && layout.width === width,
   );
-  await writeFile(
-    join(directory, name),
-    (await window.webContents.capturePage()).toPNG(),
-  );
+  await writeFile(join(directory, name), (await captureFrame(name)).toPNG());
   result.screenshots.push({ name, width });
+  await auditAccessibility(name);
+}
+async function taskPanelScreenshots(status: string) {
+  await js(
+    'document.getElementById("workspace-tasks-tab").click();document.querySelectorAll(".session-task-history").forEach(el=>el.open=true);document.querySelectorAll(".chat-goal-card > .chat-record-details").forEach(el=>el.open=false)',
+  );
+  for (const theme of ["light", "dark"]) {
+    await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+    for (const width of [1280, 900])
+      await screenshot(
+        `tasks-${status}-${theme}-${width}.png`,
+        width,
+        width === 1280 ? 800 : 700,
+        true,
+      );
+  }
+  await js('document.documentElement.dataset.theme="light"');
 }
 async function finish(error?: unknown) {
   if (error)
@@ -357,6 +441,7 @@ void app
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        backgroundThrottling: false,
       },
     });
     window.setMenu(null);
@@ -366,6 +451,30 @@ void app
     });
     await window.loadFile(join(directory, "index.html"));
     window.showInactive();
+    await until(
+      'document.querySelector("[data-chat-session-id=chat-a]")',
+      "chat loaded while initial goal snapshot is held",
+    );
+    await js(
+      'document.querySelector("[aria-controls=workspace-panel]").click()',
+    );
+    await until(
+      'document.getElementById("workspace-tasks-tab")',
+      "right workspace open",
+    );
+    await js('document.getElementById("workspace-tasks-tab").click()');
+    await until(
+      'document.querySelector("[data-task-loading=true]")',
+      "pending host snapshot loading",
+    );
+    check(
+      "pending existing host goal never displays empty task state",
+      await js(
+        'document.querySelector("[data-task-loading=true]").innerText.includes("正在读取宿主任务记录") && !document.querySelector("[data-task-empty]")',
+      ),
+    );
+    holdInitialSnapshot = false;
+    releaseInitialSnapshot?.();
     await until(
       'document.querySelector(".chat-goal-card[data-goal-id=goal-a]")',
       "GoalCard mounted in production conversation",
@@ -377,7 +486,7 @@ void app
     check(
       "Goal belongs to its original conversation turn",
       await js(
-        'document.querySelector(".chat-goal-card").closest("[data-chat-turn-id]").dataset.chatTurnId === "turn-goal"',
+        'document.querySelector(".chat-goal-card").dataset.intentTurnId === "turn-goal" && document.querySelector("[data-goal-result-id=goal-a]").closest("[data-chat-turn-id]").dataset.chatTurnId === "turn-goal"',
       ),
     );
     check(
@@ -410,7 +519,7 @@ void app
       ),
     );
     await screenshot("trajectory-900.png", 900);
-    await js('document.getElementById("chat-conversation-tab").click()');
+    await js('document.getElementById("workspace-tasks-tab").click()');
     goal().requests = [
       {
         requestId: goal().submission!.requestIds[0],
@@ -490,6 +599,37 @@ void app
     );
     await screenshot("unknown-details-1440.png", 1440);
     await screenshot("unknown-details-900.png", 900);
+    await taskPanelScreenshots("unknown");
+    check(
+      "unknown matrix stays neutral and unconfirmed",
+      await js(
+        'document.querySelector("[data-goal-id=goal-a] [data-matrix-tone=unknown]").innerText.includes("? 未确认") && !document.querySelector("[data-goal-id=goal-a] [data-matrix-tone=verified]")',
+      ),
+    );
+    publish("needs-user", "隔离测试：需要你核对原任务记录，结果仍未确认。");
+    await until(
+      'document.querySelector("[data-goal-id=goal-a][data-status=needs-user]")',
+      "needs user goal",
+    );
+    await taskPanelScreenshots("needs-user");
+    const beforeResume = calls.length;
+    await js(
+      '[...document.querySelectorAll("[data-goal-id=goal-a] button")].find(el=>el.textContent.includes("继续沟通这个目标")).click()',
+    );
+    await until(
+      'document.querySelector("textarea").value.includes("继续目标 goal-a")',
+      "resume prompt filled",
+    );
+    check(
+      "resume only fills goal discussion text without execution",
+      calls
+        .slice(beforeResume)
+        .every(
+          (call) =>
+            !["startGoal", "sendChat", "chatCommand"].includes(call.method),
+        ),
+    );
+    await js('document.getElementById("workspace-tasks-tab").click()');
     goal().retryCount = 1;
     publish(
       "recovering",
@@ -502,7 +642,7 @@ void app
     check(
       "recovery remains on original turn",
       await js(
-        'document.querySelector(".chat-goal-card").closest("[data-chat-turn-id]").dataset.chatTurnId === "turn-goal"',
+        'document.querySelector(".chat-goal-card").dataset.intentTurnId === "turn-goal"',
       ),
     );
     await screenshot("recovering-900.png", 900);
@@ -540,6 +680,9 @@ void app
       'document.querySelector(".chat-goal-card").dataset.status === "completed"',
       "completed goal",
     );
+    await js(
+      'document.querySelector(".chat-goal-card[data-goal-id=goal-a] > .chat-record-details").open=true',
+    );
     check(
       "completed displays separate public model reply",
       await js(
@@ -554,6 +697,7 @@ void app
     );
     await screenshot("completed-1440.png", 1440);
     await screenshot("completed-900.png", 900);
+    await taskPanelScreenshots("completed");
     await js('document.getElementById("chat-trajectory-tab").click()');
     await until(
       'document.querySelector("[data-trajectory-goal-id=goal-a]")?.innerText.includes("没有使用理智药或源石")',
@@ -577,7 +721,7 @@ void app
     );
     await screenshot("goal-result-trajectory-1440.png", 1440);
     await screenshot("goal-result-trajectory-900.png", 900);
-    await js('document.getElementById("chat-conversation-tab").click()');
+    await js('document.getElementById("workspace-tasks-tab").click()');
     // Stop a separate freshly authored turn, without reviving the cancelled original grant.
     const stoppedGoal = makeGoal(
       "goal-stop",
@@ -586,6 +730,7 @@ void app
     );
     stoppedGoal.turnId = "turn-stop";
     stoppedGoal.grant.turnId = "turn-stop";
+    stoppedGoal.status = "cancelling";
     goals.goals.push(stoppedGoal);
     goals.revision++;
     chat.sessions[0].turns.push({
@@ -601,6 +746,15 @@ void app
       'document.querySelector(".chat-goal-card[data-goal-id=goal-stop]")',
       "separate stop target",
     );
+    await taskPanelScreenshots("cancelling");
+    stoppedGoal.status = "waiting";
+    stoppedGoal.revision++;
+    goals.revision++;
+    window.webContents.send("goal-fixture:goal", goals);
+    await until(
+      'document.querySelector("[data-goal-id=goal-stop][data-status=waiting]")',
+      "stop target ready",
+    );
     check(
       "new Goal details start collapsed",
       await js(
@@ -608,7 +762,33 @@ void app
       ),
     );
     await js(
-      '{const b=[...document.querySelectorAll(".chat-goal-card[data-goal-id=goal-stop] button")].find(el=>el.textContent.trim()==="停止目标");b.click();b.click();}',
+      '{const b=[...document.querySelectorAll(".chat-goal-card[data-goal-id=goal-stop] button")].find(el=>el.textContent.trim()==="停止目标");b.scrollIntoView({block:"center"});b.focus();}',
+    );
+    check(
+      "stop target is a keyboard focusable native button",
+      await js(
+        'document.activeElement.tagName === "BUTTON" && document.activeElement.textContent.includes("停止目标") && document.activeElement.tabIndex === 0',
+      ),
+    );
+    window.focus();
+    window.webContents.focus();
+    await delay(75);
+    await js(
+      '[...document.querySelectorAll("[data-goal-id=goal-stop] .goal-panel-footer button")].find(el=>el.textContent.trim()==="停止目标").focus()',
+    );
+    window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+    window.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
+    window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+    await until(
+      'document.querySelector("[data-goal-id=goal-stop] .goal-panel-footer button.button").disabled',
+      "keyboard Enter submits stop",
+    );
+    check(
+      "keyboard Enter dispatches the original stop request",
+      calls.filter((call) => call.method === "cancelGoal").length === 1,
+    );
+    await js(
+      '{const b=[...document.querySelectorAll(".chat-goal-card[data-goal-id=goal-stop] button")].find(el=>el.textContent.includes("确认停止")||el.textContent.includes("停止目标"));b.click();b.click();}',
     );
     await until(
       'document.querySelector(".chat-goal-card[data-goal-id=goal-stop]").dataset.status === "cancelled"',
@@ -616,7 +796,7 @@ void app
     );
     const stops = calls.filter((c) => c.method === "cancelGoal");
     check(
-      "double click stops exactly once using original session and Goal IDs",
+      "keyboard Enter and repeated mouse clicks stop exactly once using original session and Goal IDs",
       stops.length === 1 &&
         JSON.stringify(stops[0].args[0]) ===
           JSON.stringify({ goalId: "goal-stop", sessionId: "chat-a" }),
@@ -632,6 +812,9 @@ void app
       await js(
         'document.querySelector(".chat-goal-card[data-goal-id=goal-a]").dataset.status === "completed"',
       ),
+    );
+    await js(
+      'document.querySelector(".chat-goal-card[data-goal-id=goal-stop] details").open=true',
     );
     check(
       "host fallback is attributed to the host rather than a model",

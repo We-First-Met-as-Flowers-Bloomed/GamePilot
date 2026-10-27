@@ -10,7 +10,7 @@ import { createAgentTools } from "../packages/agent/tools";
 import { prepareAgentGame } from "../games/agent-execution";
 import type { LaneExecutionSnapshot } from "../apps/desktop/main/lane-snapshot";
 const at = new Date("2026-10-05T06:00:00.000Z");
-function setup(prompt = "运行保存的日常", clock = at) {
+function setup(prompt = "运行保存的日常", clock = at, locallyConfirmed = true) {
   let store: GoalStore | undefined;
   const prepared: PreparedGoal = {
     fingerprint: "frozen",
@@ -107,6 +107,17 @@ function setup(prompt = "运行保存的日常", clock = at) {
     goals,
     now: () => clock,
     assertCurrent,
+    ...(locallyConfirmed
+      ? {
+          authorizeExecution: async () => ({
+            confirmationId: "local-review-a",
+            fingerprint: prepared.fingerprint,
+            scopes: structuredClone(prepared.scopes),
+            expiresAt: new Date(clock.getTime() + 600000).toISOString(),
+            maxRetries: 2 as const,
+          }),
+        }
+      : {}),
     prepareSaved: async () => structuredClone(prepared),
     prepareDraft: async () => prepared,
     prepareContinuation: async (_principal, reference) => {
@@ -134,6 +145,14 @@ function setup(prompt = "运行保存的日常", clock = at) {
     setPlan,
   };
 }
+it("language recognition and model-supplied principal fields cannot grant a new execution", async () => {
+  const x = setup("现在立即运行所有账号的保存日常", at, false);
+  await expect(
+    x.binding.call("run_saved_daily", { scope: "saved" }, x.context),
+  ).rejects.toMatchObject({ code: "LOCAL_CONFIRMATION_REQUIRED" });
+  expect(x.submit).not.toHaveBeenCalled();
+  expect(x.goals.snapshot().goals).toHaveLength(0);
+});
 it("creates a continuation Goal from current resume authority and reserves its exact external parent", async () => {
   const x = setup("更新好了，继续刚才的日常");
   x.prepared.frozenPlan = {

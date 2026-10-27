@@ -229,11 +229,11 @@ const receipt = (id: string, continuation: boolean): ExecutionRecord => ({
   finishedAt: at,
   message: "所选任务结束",
 });
-const renderDaily = (records: ExecutionRecord[]) => {
+const renderDaily = (records: ExecutionRecord[], target: DeviceLane = lane) => {
   const lastRun: RunEvent = {
     runId: "batch",
     batchId: "batch",
-    laneId: lane.id,
+    laneId: target.id,
     executionId: "current",
     executionSource: "single",
     type: "status",
@@ -242,11 +242,11 @@ const renderDaily = (records: ExecutionRecord[]) => {
     message: "所选任务结束",
   };
   const desktop = {
-    deviceLanes: { version: 1, lanes: [lane] },
+    deviceLanes: { version: 1, lanes: [target] },
     arknightsProfiles: { profiles: [] },
     snapshot: { executions: records },
-    laneStatuses: { [lane.id]: "succeeded" },
-    laneDailyStates: { [lane.id]: { status: null, lastRun } },
+    laneStatuses: { [target.id]: "succeeded" },
+    laneDailyStates: { [target.id]: { status: null, lastRun } },
     taskRecords: [],
     active: false,
     lanesDirty: false,
@@ -268,3 +268,48 @@ it("shows the continuation guidance only for the exact matching current receipt"
   expect(other).not.toContain("续跑进度见下方");
   expect(other).not.toContain("最近续跑（仅所选任务）");
 });
+
+it("keeps an exact single-game continuation panel visible before the task disclosure", () => {
+  const target = { ...lane, onmyoji: { enabled: true } };
+  const current = receipt("current", true);
+  current.snapshot.onmyojiPlan = {
+    gameId: "onmyoji",
+    mode: "live",
+    skillIds: ["login"],
+  };
+  const html = renderDaily([current], target);
+  const visible = html.split('<details class="daily-plan-details"')[0];
+  expect(visible).toContain("续跑进度见下方");
+  expect(visible).toContain("最近续跑（仅所选任务）");
+  expect(visible).toContain('aria-label="原计划与续跑进度"');
+  expect(html.match(/aria-label="原计划与续跑进度"/g)).toHaveLength(1);
+});
+
+it.each(["lane", "batch", "duplicate", "game"])(
+  "does not borrow a continuation receipt with conflicting %s ownership",
+  (conflict) => {
+    const target = { ...lane, onmyoji: { enabled: true } };
+    const current = receipt("current", true);
+    current.snapshot.onmyojiPlan = {
+      gameId: "onmyoji",
+      mode: "live",
+      skillIds: ["login"],
+    };
+    if (conflict === "lane") current.laneId = "different-account";
+    if (conflict === "batch") current.batchId = "different-batch";
+    if (conflict === "game") {
+      delete current.snapshot.onmyojiPlan;
+      current.snapshot.arknightsPlan = {
+        gameId: "arknights",
+        mode: "live",
+        skillIds: ["login"],
+      };
+    }
+    const html = renderDaily(
+      conflict === "duplicate" ? [current, { ...current }] : [current],
+      target,
+    );
+    expect(html).not.toContain("续跑进度见下方");
+    expect(html).not.toContain("最近续跑（仅所选任务）");
+  },
+);

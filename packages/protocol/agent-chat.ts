@@ -46,14 +46,24 @@ export interface ChatSessionSummary {
     environmentRevision?: string;
   }[];
 }
-export interface ChatArchivedSession {
-  version: 1;
-  id: string;
-  archivedAt: string;
-  session: ChatSession;
-}
+export type ChatArchivedSession =
+  | {
+      version: 1;
+      /** Legacy archives use the original session ID as their file ID. */
+      id: string;
+      archivedAt: string;
+      session: ChatSession;
+    }
+  | {
+      version: 2;
+      /** Content-addressed immutable revision, separate from execution ownership. */
+      id: string;
+      originalSessionId: string;
+      archivedAt: string;
+      session: ChatSession;
+    };
 export interface ChatArchiveEntry {
-  version: 1;
+  version: 1 | 2;
   id: string;
   sessionId: string;
   title: string;
@@ -65,6 +75,14 @@ export interface ChatArchiveEntry {
 }
 export interface ChatArchiveInput {
   sessionId: string;
+}
+export interface RestoreArchivedChatInput {
+  archiveId: string;
+}
+export interface DeleteChatInput {
+  sessionId: string;
+  /** Explicit local confirmation; chat deletion does not erase host ledgers. */
+  confirmation: "delete-chat";
 }
 export interface ChatArchivePageInput {
   cursor?: string;

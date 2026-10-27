@@ -8,7 +8,7 @@ import {
   type LaunchShortcut,
 } from "../scripts/release/check-launch-pointers.mjs";
 
-const releaseRoot = "D:\\Desktop\\yys\\gamepilot\\release";
+const releaseRoot = "D:\\Projects\\GamePilot\\release";
 const previous = `${releaseRoot}\\GamePilot-0.14.47`;
 const selected = `${releaseRoot}\\GamePilot-0.15.2`;
 const targetPath = `${selected}\\GamePilot.exe`;

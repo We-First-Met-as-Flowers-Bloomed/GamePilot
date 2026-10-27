@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isCopilotReview } from "../../../packages/protocol/copilot-review";
 import { canonical } from "../../../packages/acceptance/files";
 import {
   AgentToolError,
@@ -323,6 +324,16 @@ function plannerValid(p: PlannerViewState, t: ChatTurn) {
       r.historyAssessment.canAuthorizeReplay !== false)
   )
     return false;
+  if (
+    r.copilot !== undefined &&
+    (!isCopilotReview(r.copilot) ||
+      r.status !== "answer" ||
+      r.execution !== "not-started" ||
+      r.draft !== undefined ||
+      r.goalIds?.length ||
+      r.configurationChangedByHost !== undefined)
+  )
+    return false;
   // Result payloads are inert historical data. Reject malformed containers before
   // components render them; executable admission still uses the live planner.
   if (
@@ -567,12 +578,18 @@ const archiveError = () =>
     "CHAT_ARCHIVE_UNAVAILABLE",
     "归档记录无法可靠保存或读取；原会话和归档文件保留。",
   );
+const archiveId = (session: ChatSession) =>
+  "archive-" + createHash("sha256").update(canonical(session)).digest("hex");
 export function validateChatArchive(record: ChatArchivedSession) {
   if (
     !record ||
-    record.version !== 1 ||
+    ![1, 2].includes(record.version) ||
     !id(record.id) ||
-    record.id !== record.session?.id ||
+    (record.version === 1
+      ? record.id !== record.session?.id
+      : record.originalSessionId !== record.session?.id ||
+        !id(record.originalSessionId) ||
+        record.id !== archiveId(record.session)) ||
     !date(record.archivedAt) ||
     Buffer.byteLength(JSON.stringify(record), "utf8") > maxBytes
   )
@@ -590,7 +607,7 @@ export function chatArchiveEntry(
 ): ChatArchiveEntry {
   const s = record.session;
   return {
-    version: 1,
+    version: record.version,
     id: record.id,
     sessionId: s.id,
     title: s.title,
@@ -604,9 +621,12 @@ export function chatArchiveEntry(
 function validArchiveEntry(entry: ChatArchiveEntry) {
   return (
     entry &&
-    entry.version === 1 &&
+    [1, 2].includes(entry.version) &&
     id(entry.id) &&
-    entry.sessionId === entry.id &&
+    id(entry.sessionId) &&
+    (entry.version === 1
+      ? entry.sessionId === entry.id
+      : /^archive-[a-f0-9]{64}$/.test(entry.id)) &&
     text(entry.title, 80) &&
     date(entry.createdAt) &&
     date(entry.updatedAt) &&
@@ -704,12 +724,14 @@ export class ChatService {
   private initialized: Promise<void>;
   private operation = false;
   private closed = false;
+  private managementStates?: Map<string, PlannerViewState>;
+  private managementSettled?: Promise<void>;
   private unsubscribe: () => void;
   private listeners = new Set<(view: ChatView) => void>();
   constructor(private deps: Dependencies) {
     this.initialized = this.restore();
     this.unsubscribe = deps.planner.subscribe((state) => {
-      if (!this.closed && !this.view.error && this.applyPlannerState(state))
+      if (!this.closed && this.receivePlannerState(state))
         void this.persist().catch(() => {});
     });
   }
@@ -864,16 +886,35 @@ export class ChatService {
     this.touch();
     return terminal;
   }
+  private receivePlannerState(state: PlannerViewState): boolean {
+    if (this.view.error) return false;
+    if (this.managementStates) {
+      if (state.requestId && this.requestTarget(state.requestId)) {
+        const prior = this.managementStates.get(state.requestId);
+        if (!prior || state.revision > prior.revision)
+          this.managementStates.set(state.requestId, structuredClone(state));
+      }
+      return false;
+    }
+    return this.applyPlannerState(state);
+  }
   private async reconcile() {
     if (this.view.error) return;
     const p = await this.deps.planner.verifiedSnapshot();
-    if (this.applyPlannerState(p)) await this.persist();
+    if (this.receivePlannerState(p)) await this.persist();
   }
   async snapshot(): Promise<ChatView> {
     await this.initialized;
     await this.reconcile().catch(() => {});
-    await this.writes;
-    return structuredClone(this.view);
+    // Reads wait for both disk writes and management commit/rollback. A newer
+    // write may be queued while awaiting an older one, so follow the queue tail.
+    while (true) {
+      const pending = this.writes;
+      await pending;
+      await this.managementSettled;
+      if (pending === this.writes && !this.managementSettled)
+        return structuredClone(this.view);
+    }
   }
   /** Only durable snapshots are published; observers never receive mutable state. */
   subscribe(listener: (view: ChatView) => void) {
@@ -890,28 +931,100 @@ export class ChatService {
     );
     return matches.length === 1 ? matches[0] : undefined;
   }
+  private assertInactive(session: ChatSession) {
+    if (
+      session.turns.some(
+        (turn) => plannerActive(turn.planner) || turn.planner.status === "idle",
+      ) ||
+      this.deps.canArchive?.(session.id) === false
+    )
+      throw new AgentToolError(
+        "CHAT_SESSION_ACTIVE",
+        "本会话仍有模型或执行任务活动，请结束后手动整理",
+      );
+  }
+  private async persistManagement(before: ChatView) {
+    // A terminal event must not enqueue a second save of a management change
+    // whose first write may fail. Retain only the latest state for each owner.
+    this.managementStates = new Map();
+    let settle!: () => void;
+    this.managementSettled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    try {
+      let failed = false;
+      let failure: unknown;
+      try {
+        await this.persist();
+      } catch (error) {
+        this.view = {
+          ...before,
+          revision: this.view.revision,
+          error: storeError().message,
+        };
+        failed = true;
+        failure = error;
+      }
+      const states = [...this.managementStates.values()];
+      this.managementStates = undefined;
+      let terminal = false;
+      for (const state of states)
+        if (this.applyPlannerState(state)) terminal = true;
+      if (states.length)
+        for (const session of this.view.sessions)
+          session.summary = summarizeChatSession(session);
+      if (failed) throw failure;
+      if (terminal) await this.persist();
+    } finally {
+      this.managementStates = undefined;
+      this.managementSettled = undefined;
+      settle();
+    }
+  }
+  private async removeSession(sessionId: string) {
+    const before = structuredClone(this.view);
+    this.view.sessions = this.view.sessions.filter(
+      (item) => item.id !== sessionId,
+    );
+    if (this.view.selectedSessionId === sessionId)
+      this.view.selectedSessionId = this.view.sessions.at(-1)?.id;
+    this.touch();
+    if (!this.view.sessions.length) this.addSession();
+    await this.persistManagement(before);
+    return structuredClone(this.view);
+  }
+  private async archivedRecord(archiveId: string) {
+    if (!this.deps.loadArchive) throw archiveError();
+    let record: ChatArchivedSession | undefined;
+    try {
+      record = await this.deps.loadArchive(archiveId);
+      if (record) {
+        validateChatArchive(record);
+        if (record.id !== archiveId) throw archiveError();
+      }
+    } catch {
+      throw archiveError();
+    }
+    if (!record)
+      throw new AgentToolError("CHAT_ARCHIVE_NOT_FOUND", "归档会话不存在");
+    return record;
+  }
   archive(input: unknown) {
     return this.mutate(async () => {
       const value = agentObject(input, ["sessionId"]);
       await this.reconcile();
       const session = this.session(value.sessionId);
-      if (
-        session.turns.some(
-          (turn) =>
-            plannerActive(turn.planner) || turn.planner.status === "idle",
-        ) ||
-        this.deps.canArchive?.(session.id) === false
-      )
-        throw new AgentToolError(
-          "CHAT_SESSION_ACTIVE",
-          "本会话仍有模型或执行任务活动，请结束后手动归档",
-        );
+      this.assertInactive(session);
       if (!this.deps.archive) throw archiveError();
+      // Hash the exact serialized session so optional undefined fields cannot
+      // change an immutable revision after a disk roundtrip.
+      const frozen: ChatSession = JSON.parse(JSON.stringify(session));
       const record: ChatArchivedSession = {
-        version: 1,
-        id: session.id,
+        version: 2,
+        id: archiveId(frozen),
+        originalSessionId: session.id,
         archivedAt: new Date().toISOString(),
-        session: structuredClone(session),
+        session: frozen,
       };
       try {
         validateChatArchive(record);
@@ -924,25 +1037,61 @@ export class ChatService {
           throw error;
         throw archiveError();
       }
-      const before = structuredClone(this.view);
-      this.view.sessions = this.view.sessions.filter(
-        (item) => item.id !== session.id,
+      this.assertInactive(session);
+      return this.removeSession(session.id);
+    });
+  }
+  restoreArchived(input: unknown) {
+    return this.mutate(async () => {
+      const value = agentObject(input, ["archiveId"]);
+      if (!id(value.archiveId))
+        throw new AgentToolError("INVALID_INPUT", "归档编号无效");
+      await this.reconcile();
+      const record = await this.archivedRecord(value.archiveId);
+      const existing = this.view.sessions.find(
+        (s) => s.id === record.session.id,
       );
-      if (this.view.selectedSessionId === session.id)
-        this.view.selectedSessionId = this.view.sessions.at(-1)?.id;
-      this.touch();
-      if (!this.view.sessions.length) this.addSession();
-      try {
-        await this.persist();
-      } catch (error) {
-        this.view = {
-          ...before,
-          revision: this.view.revision,
-          error: storeError().message,
-        };
-        throw error;
+      this.assertInactive(existing ?? record.session);
+      if (existing && this.view.selectedSessionId === existing.id)
+        return structuredClone(this.view);
+      const candidate = structuredClone(this.view);
+      if (!existing) {
+        const restored = structuredClone(record.session);
+        restored.summary = summarizeChatSession(restored);
+        candidate.sessions.push(restored);
       }
+      candidate.selectedSessionId = record.session.id;
+      candidate.revision++;
+      if (
+        candidate.sessions.length > 32 ||
+        Buffer.byteLength(JSON.stringify(candidate), "utf8") > maxBytes
+      )
+        throw new AgentToolError(
+          "CHAT_BUDGET",
+          "恢复后会话记录将超出存储预算，请先手动归档或删除已结束会话",
+        );
+      try {
+        validateStore(candidate);
+      } catch {
+        throw archiveError();
+      }
+      const before = structuredClone(this.view);
+      this.view = candidate;
+      // Keep the immutable archive even after a successful active-store write.
+      await this.persistManagement(before);
       return structuredClone(this.view);
+    });
+  }
+  delete(input: unknown) {
+    return this.mutate(async () => {
+      const value = agentObject(input, ["sessionId", "confirmation"]);
+      if (value.confirmation !== "delete-chat" || !id(value.sessionId))
+        throw new AgentToolError("INVALID_INPUT", "删除会话需要本机明确确认");
+      await this.reconcile();
+      const session = this.session(value.sessionId);
+      this.assertInactive(session);
+      // Deliberately do not create an archive or touch host task/goal/event ledgers.
+      return this.removeSession(session.id);
     });
   }
   async listArchived(input: unknown = {}): Promise<ChatArchivePage> {
@@ -981,6 +1130,8 @@ export class ChatService {
     } catch {
       throw archiveError();
     }
+    const activeIds = new Set(this.view.sessions.map((session) => session.id));
+    entries = entries.filter((entry) => !activeIds.has(entry.sessionId));
     const compare = (
       a: { archivedAt: string; id: string },
       b: { archivedAt: string; id: string },
@@ -1045,19 +1196,7 @@ export class ChatService {
         Number(after.offset) > 64)
     )
       throw new AgentToolError("INVALID_CURSOR", "归档轮次游标无效");
-    if (!this.deps.loadArchive) throw archiveError();
-    let record: ChatArchivedSession | undefined;
-    try {
-      record = await this.deps.loadArchive(value.archiveId);
-      if (record) {
-        validateChatArchive(record);
-        if (record.id !== value.archiveId) throw archiveError();
-      }
-    } catch {
-      throw archiveError();
-    }
-    if (!record)
-      throw new AgentToolError("CHAT_ARCHIVE_NOT_FOUND", "归档会话不存在");
+    const record = await this.archivedRecord(value.archiveId);
     const digest = createHash("sha256").update(canonical(record)).digest("hex");
     if (after && after.digest !== digest)
       throw new AgentToolError("INVALID_CURSOR", "归档内容已变化，请重新读取");

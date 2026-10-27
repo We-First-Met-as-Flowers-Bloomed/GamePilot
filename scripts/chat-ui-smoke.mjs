@@ -12,6 +12,25 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const run = new Date().toISOString().replace(/[:.]/g, "-");
 const evidence = join(root, "artifacts/chat-ui-smoke", run);
 const require = createRequire(import.meta.url);
+const audit = process.argv.slice(2).includes("--a11y");
+if (process.argv.slice(2).some((arg) => arg !== "--a11y"))
+  throw new Error("Unsupported chat smoke argument");
+let axePath;
+if (audit) {
+  try {
+    axePath = require.resolve("axe-core/axe.min.js");
+  } catch {
+    axePath = join(
+      root,
+      "artifacts/ui-a11y-tools/node_modules/axe-core/axe.min.js",
+    );
+  }
+  const metadata = JSON.parse(
+    await readFile(join(dirname(axePath), "package.json"), "utf8"),
+  );
+  if (metadata.name !== "axe-core" || metadata.version !== "4.10.3")
+    throw new Error("Use fixed axe-core 4.10.3 for reproducible UI checks");
+}
 await mkdir(join(evidence, "profile"), { recursive: true });
 async function hashes() {
   const directory = join(homedir(), ".gamepilot");
@@ -62,9 +81,11 @@ try {
     });
   await writeFile(
     join(evidence, "index.html"),
-    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; style-src \'self\' \'unsafe-inline\'"><title>GamePilot chat · isolated verification</title><link rel="stylesheet" href="renderer.css"></head><body><div id="root"></div><script src="renderer.js"></script></body></html>',
+    '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src \'self\'; img-src \'self\' data:; script-src \'self\'; style-src \'self\'; connect-src \'self\'; object-src \'none\'; base-uri \'self\'"><title>GamePilot chat · isolated verification</title><link rel="stylesheet" href="renderer.css"></head><body><div id="root"></div><script src="renderer.js"></script></body></html>',
   );
   const env = { ...process.env };
+  if (axePath) env.GAMEPILOT_UI_AXE = axePath;
+  else delete env.GAMEPILOT_UI_AXE;
   delete env.ELECTRON_RUN_AS_NODE;
   child = spawn(require("electron"), [join(evidence, "main.cjs")], {
     cwd: root,
@@ -80,7 +101,7 @@ try {
     child.on("exit", resolveExit);
     timer = setTimeout(
       () => reject(new Error("Chat UI timed out after 120 seconds")),
-      120000,
+      audit ? 300000 : 120000,
     );
   });
   await writeFile(join(evidence, "electron.log"), logs);

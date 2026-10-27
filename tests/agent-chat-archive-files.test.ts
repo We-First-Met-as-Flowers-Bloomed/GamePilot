@@ -1,8 +1,14 @@
 import { mkdtemp, readFile, rm, writeFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, basename, sep } from "node:path";
-import { afterEach, expect, it } from "vitest";
-import type { ChatArchivedSession } from "../packages/protocol/agent-chat";
+import { createHash } from "node:crypto";
+import { afterEach, expect, it, vi } from "vitest";
+import type {
+  ChatArchivedSession,
+  ChatView,
+} from "../packages/protocol/agent-chat";
+import { canonical } from "../packages/acceptance/files";
+import { ChatService } from "../apps/desktop/main/agent-chat";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -129,4 +135,117 @@ it("checks total byte budgets before parsing an externally overfull archive dire
     code: "CHAT_ARCHIVE_BUDGET",
   });
   expect(await store.loadArchive("session-a")).toEqual(record());
+});
+
+it("roundtrips separate immutable archive revisions and rejects forged v2 identities", async () => {
+  const { chatArchiveFiles } =
+    await import("../apps/desktop/main/chat-archive-files");
+  const directory = await temporary();
+  const store = chatArchiveFiles(directory);
+  const original = record();
+  await store.archive(original);
+  const session = { ...original.session, title: "第二次归档" };
+  const revision: ChatArchivedSession = {
+    version: 2,
+    id:
+      "archive-" +
+      createHash("sha256").update(canonical(session)).digest("hex"),
+    originalSessionId: session.id,
+    archivedAt: original.archivedAt,
+    session,
+  };
+  await store.archive(revision);
+  expect(await store.loadArchive(original.id)).toEqual(original);
+  expect(await store.loadArchive(revision.id)).toEqual(revision);
+  expect(await store.list()).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        version: 1,
+        id: original.id,
+        sessionId: session.id,
+      }),
+      expect.objectContaining({
+        version: 2,
+        id: revision.id,
+        sessionId: session.id,
+      }),
+    ]),
+  );
+  const priorBytes = await readFile(
+    join(directory, `chat-${revision.id}.json`),
+    "utf8",
+  );
+  await expect(
+    store.archive({ ...revision, originalSessionId: "different-session" }),
+  ).rejects.toThrow();
+  await expect(
+    store.archive({
+      ...revision,
+      session: { ...session, title: "修改旧版本" },
+    }),
+  ).rejects.toThrow();
+  expect(
+    await readFile(join(directory, `chat-${revision.id}.json`), "utf8"),
+  ).toBe(priorBytes);
+  expect(await readdir(directory)).toHaveLength(2);
+});
+
+it("keeps disk archives through restore, failed active save and repeated unchanged rearchive", async () => {
+  const { chatArchiveFiles } =
+    await import("../apps/desktop/main/chat-archive-files");
+  const directory = await temporary();
+  const store = chatArchiveFiles(directory);
+  const old = record();
+  await store.archive(old);
+  const planner = {
+    snapshot: () => ({ revision: 0, status: "idle" as const }),
+    verifiedSnapshot: async () => ({ revision: 0, status: "idle" as const }),
+    startConversation: vi.fn(),
+    cancel: vi.fn(),
+    subscribe: () => () => {},
+  };
+  let durable = {
+    revision: 1,
+    selectedSessionId: "other-session",
+    sessions: [record("other-session").session],
+  };
+  const save = vi.fn(async (view: ChatView) => {
+    durable = JSON.parse(JSON.stringify(view));
+  });
+  const service = new ChatService({
+    planner,
+    ...store,
+    save,
+    load: async () => durable,
+  });
+  const restored = await service.restoreArchived({ archiveId: old.id });
+  expect(restored.selectedSessionId).toBe(old.session.id);
+  expect(await store.loadArchive(old.id)).toEqual(old);
+  await service.archive({ sessionId: old.session.id });
+  const revision = (await store.list()).find((entry) => entry.version === 2)!;
+  const archivePath = join(directory, `chat-${revision.id}.json`);
+  const immutableBytes = await readFile(archivePath, "utf8");
+  await service.restoreArchived({ archiveId: revision.id });
+  await service.archive({ sessionId: revision.sessionId });
+  expect(await readFile(archivePath, "utf8")).toBe(immutableBytes);
+  expect(await readdir(directory)).toHaveLength(2);
+  save.mockRejectedValueOnce(Error("active file unavailable"));
+  await expect(
+    service.restoreArchived({ archiveId: revision.id }),
+  ).rejects.toMatchObject({ code: "CHAT_STORE_UNAVAILABLE" });
+  expect(await readFile(archivePath, "utf8")).toBe(immutableBytes);
+  expect(durable.sessions.map((session) => session.id)).toEqual([
+    "other-session",
+  ]);
+  const restarted = new ChatService({
+    planner,
+    ...store,
+    save,
+    load: async () => durable,
+  });
+  expect(
+    (await restarted.restoreArchived({ archiveId: revision.id }))
+      .selectedSessionId,
+  ).toBe(old.id);
+  expect(planner.startConversation).not.toHaveBeenCalled();
 });

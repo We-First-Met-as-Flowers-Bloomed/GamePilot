@@ -57,21 +57,26 @@ const workspaces: Record<string, GameWorkspace> = {
   onmyoji: {
     mark: "阴",
     status: "持续适配",
-    description: "保留现有日常能力，逐步完善每一个庭院场景。",
+    description: "每日任务为必做 6 项加阴阳寮麒麟；其余场景保留手动入口。",
     groups: [
       { title: "庭院日常", ids: ["login", "check-in", "mail", "daily-gift"] },
-      { title: "阴阳寮与结界", ids: ["guild-quest", "foster", "guild-kirin"] },
+      { title: "阴阳寮", ids: ["guild-kirin"] },
       { title: "挑战与奖励", ids: ["realm-raid", "hana-claim"] },
+      {
+        title: "暂不纳入日常（可手动执行）",
+        ids: ["guild-quest", "oboroguruma", "foster"],
+      },
     ],
     progress: [
       {
-        title: "现有任务保留",
+        title: "每日任务定稿",
         description:
-          "签到、邮件、礼包、阴阳寮、寄养、地域鬼王和花合战保留原执行入口。",
+          "2026-10-25 起，每日自动执行：上号、庭院签到、邮件、每日免费礼包、阴阳寮麒麟（周一至周四）、地域鬼王、花合战领奖。",
       },
       {
         title: "场景稳定性",
-        description: "继续优化庭院卷轴、页面返回、弹窗处理与花合战领取等场景。",
+        description:
+          "花合战、地域鬼王、礼包屋已实机验证；胧车偶发停在确认阵容页，暂不纳入日常。",
       },
       {
         title: "后续配置空间",

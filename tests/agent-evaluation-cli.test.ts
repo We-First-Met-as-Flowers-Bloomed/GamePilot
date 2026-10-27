@@ -34,7 +34,7 @@ beforeAll(async () => {
     metafile: true,
   });
   expect(Object.keys(built.metafile!.inputs).join("\n")).not.toMatch(
-    /snapshot\.ts|packages\/runtime\/(?:worker|device|maa)\.|apps\/desktop\/main|maa-node|electron/,
+    /(?:^|\/)snapshot\.ts|packages\/runtime\/(?:worker|device|maa)\.|apps\/desktop\/main|maa-node|electron/,
   );
 });
 afterAll(async () => {
@@ -58,7 +58,7 @@ async function run(args: string[]) {
 it("lists frozen cases without creating a run or loading an engine", async () => {
   const output = await run(["--list"]);
   expect(output.code).toBe(0);
-  expect(JSON.parse(output.stdout)).toHaveLength(30);
+  expect(JSON.parse(output.stdout)).toHaveLength(31);
   expect(await readdir(root)).toEqual(["cli.cjs"]);
 });
 it("lists diagnostics only when explicitly selected and rejects mixing suites", async () => {

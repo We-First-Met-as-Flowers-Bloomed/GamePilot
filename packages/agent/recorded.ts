@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { canonical } from "../acceptance/files";
 import { AgentToolError, agentDate } from "../protocol/agent";
 import { validateDeviceLanes, type DeviceLanes } from "../protocol";
+import { agentLaneAlias } from "../protocol/lane-alias";
 import type {
   ArknightsProfiles,
   ArknightsProfile,
@@ -11,7 +12,7 @@ import type {
 import type { ExecutionRecord } from "../protocol/execution";
 import {
   taskRecordKey,
-  validateTaskRecord,
+  readTaskRecord,
   type TaskRecord,
 } from "../protocol/task-record";
 import {
@@ -102,7 +103,7 @@ export async function readRecordedHistory(
         }
         requests.push(raw);
       } else {
-        const task = validateTaskRecord(raw);
+        const task = readTaskRecord(raw);
         if (hash(taskRecordKey(task)) + ".json" !== file.name)
           throw Error("invalid task key");
         historyPlan(task.plan);
@@ -177,7 +178,7 @@ export async function readRecordedHistory(
         continue;
       }
       const id = `request-${projected.length + 1}`,
-        laneId = `lane-${String.fromCharCode(97 + index)}`;
+        laneId = agentLaneAlias(index);
       aliases.set(raw.id, id);
       if (
         Date.parse(raw.startedAt) > collectedAt ||

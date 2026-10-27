@@ -136,7 +136,7 @@ export async function requestLocalControl(
     let sent = false;
     let settled = false;
     let buffer = Buffer.alloc(0);
-    const mutation = !["status", "capabilities", "events"].includes(method);
+    const mutation = !["status", "capabilities", "events", "arknights-automation", "arknights-run-status"].includes(method);
     const socket = connect(discovery.pipe);
     const complete = (error, value) => {
       if (settled) return;

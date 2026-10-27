@@ -345,6 +345,13 @@ it("persists a current-chat continuation before using the existing executor and 
       throw Error("must not start new plan");
     },
     prepareContinuation: x.prepare,
+    authorizeExecution: async (principal, prepared) => ({
+      confirmationId: "local-continuation-review",
+      fingerprint: prepared.fingerprint,
+      scopes: structuredClone(prepared.scopes),
+      expiresAt: new Date(x.now().getTime() + 600000).toISOString(),
+      maxRetries: 2,
+    }),
     preferences: async () => ({}),
   });
   const binding = runtime.bind(x.principal, "planner", "recorded"),

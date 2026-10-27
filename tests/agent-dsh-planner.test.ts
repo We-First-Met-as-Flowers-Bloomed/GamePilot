@@ -11,6 +11,91 @@ import type { CompiledDraft } from "../packages/protocol/agent";
 
 const at = "2026-10-05T06:00:00.000Z";
 
+it.each([false, true])(
+  "turns a host local-confirmation refusal into the exact saved intent with unrelated compile=%s",
+  async (compileFirst) => {
+    const snapshot = createFixtureSnapshot();
+    snapshot.source = "configured";
+    const result = await planWithDsh(createAgentTools(snapshot), {
+      connection: {
+        baseUrl: "https://offline.invalid",
+        model: "test",
+        apiKey: "test",
+      },
+      prompt: "运行保存的日常",
+      at,
+      binding: {
+        specs: [
+          { name: "run_saved_daily", description: "test", inputSchema: {} },
+        ],
+        goalIds: () => [],
+        compiled: () => {},
+        call: async () => {
+          throw new AgentToolError(
+            "LOCAL_CONFIRMATION_REQUIRED",
+            "请核对清单并确认",
+          );
+        },
+      },
+      run: async (options) => {
+        if (compileFirst) {
+          const ctx = (callId: string) => ({
+            callId,
+            signal: new AbortController().signal,
+          });
+          const catalog: any = await options.callTool(
+              "list_capabilities",
+              {},
+              ctx("catalog"),
+            ),
+            environment: any = await options.callTool(
+              "get_environment",
+              {},
+              ctx("env"),
+            );
+          await options.callTool(
+            "compile_plan",
+            {
+              catalogRevision: catalog.revision,
+              environmentRevision: environment.revision,
+              at,
+              lanes: [
+                {
+                  laneId: "lane-a",
+                  games: [{ gameId: "arknights", skillIds: ["login"] }],
+                },
+              ],
+            },
+            ctx("compile"),
+          );
+        }
+        await options.callTool(
+          "run_saved_daily",
+          { scope: compileFirst ? "both" : "saved" },
+          {
+            callId: "request-confirmation",
+            signal: new AbortController().signal,
+          },
+        );
+        return {
+          finalText: "已经启动游戏",
+          model: "test",
+          sessionId: "offline",
+          events: [],
+        };
+      },
+    });
+    expect(result.status).toBe(
+      compileFirst ? "saved-both-games" : "saved-daily",
+    );
+    expect(result.draft).toBeUndefined();
+    expect(result.execution).toBe("not-started");
+    expect(result.canExecute).toBe(false);
+    expect(result.modelText).toMatch(/确认/);
+    expect(result.modelText).not.toContain("已经启动");
+  },
+);
+
 it.each(["environment-only", "pre-read", "old-goal", "budget-used"])(
   "fills a today's two-account daily query from host records after %s",
   async (mode) => {

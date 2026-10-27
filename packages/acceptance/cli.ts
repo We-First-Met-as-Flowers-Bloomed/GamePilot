@@ -12,6 +12,11 @@ import {
   type DailyExpectation,
 } from "./report";
 import { readEvidence, canonical } from "./files";
+import {
+  acceptanceBindingHash,
+  evaluateObservationWindow,
+  verifyDailyEvidence,
+} from "./criteria";
 
 async function main() {
   const args = process.argv.slice(2),
@@ -93,6 +98,7 @@ async function main() {
           laneId: lane.id,
           instance: lane.instance,
           plans: [frozen.arknightsPlan!, frozen.onmyojiPlan!],
+          bindingHash: acceptanceBindingHash(frozen),
         });
         if (automation.secondScheduleEnabled) {
           const evening = freezeLaneExecution(
@@ -109,6 +115,7 @@ async function main() {
             slot: "secondary",
             dueTime: automation.secondScheduleTime,
             plans: [evening.arknightsPlan!],
+            bindingHash: acceptanceBindingHash(evening),
           });
         }
       }
@@ -125,7 +132,7 @@ async function main() {
       baselineFile,
       JSON.stringify(
         {
-          version: 1,
+          version: 2,
           capturedAt: new Date().toISOString(),
           data,
           start,
@@ -142,7 +149,7 @@ async function main() {
   }
   const baseline = await json(baselineFile);
   if (
-    baseline.version !== 1 ||
+    ![1, 2].includes(baseline.version) ||
     baseline.data !== data ||
     !Array.isArray(baseline.expectations) ||
     baseline.expectations.length !==
@@ -154,9 +161,48 @@ async function main() {
   const configChanges = configFiles.filter(
     (f) => canonical(config[f]) !== canonical(baseline.config[f]),
   );
-  const daily = baseline.expectations.map((e: DailyExpectation) =>
-    inspectDaily(e, evidence.requests, evidence.tasks, observedAt),
-  );
+  const daily = (baseline.expectations as DailyExpectation[]).map((e) => {
+    if (baseline.version === 1) {
+      // Derive only from the captured config, never today's settings or a request.
+      const lane = validateDeviceLanes(
+        baseline.config["device-lanes.json"],
+      ).lanes.find((l) => l.id === e.laneId);
+      if (lane)
+        e = {
+          ...e,
+          bindingHash: acceptanceBindingHash(
+            freezeLaneExecution(
+              lane,
+              validateArknightsProfiles(baseline.config["arknights.json"]),
+              false,
+              new Date(
+                `${e.date}T${e.dueTime ?? (e.slot === "secondary" ? "20:00" : "08:00")}:00+08:00`,
+              ),
+              e.slot ?? "primary",
+            ),
+          ),
+        };
+    }
+    const row = inspectDaily(e, evidence.requests, evidence.tasks, observedAt);
+    const verification = verifyDailyEvidence(
+      e,
+      row,
+      evidence.requests,
+      evidence.tasks,
+    );
+    return {
+      ...row,
+      reviewRequired: verification.status !== "passed",
+      verification,
+    };
+  });
+  const acceptanceResult = evaluateObservationWindow(daily, {
+    start: baseline.start,
+    end: baseline.end,
+    now: observedAt,
+    dataErrors: evidence.errors,
+    configChanges,
+  });
   const maintenance = [];
   for (const original of baseline.maintenance) {
     const ledger = await json(
@@ -204,7 +250,7 @@ async function main() {
     });
   }
   const report = {
-    version: 1,
+    version: 2,
     observedAt: observedAt.toISOString(),
     window: { start: baseline.start, end: baseline.end },
     dataErrors: evidence.errors,
@@ -212,11 +258,12 @@ async function main() {
     daily,
     summary: summarizeDaily(daily),
     maintenance,
-    acceptance: "pending-human-review",
+    acceptance: acceptanceResult.status,
+    acceptanceReasons: acceptanceResult.reasons,
     notes: [
       "只读采集；不会启动游戏或修改任务账本。",
       "未记录的人工介入不等于零介入。缺任务不能推断为关机、掉线或成功。",
-      "当前记录未独立证明定时启动来源、退出方舟、全部奖励与账号身份；不能自动宣布七天通过。",
+      "逐项核对冻结请求、定时器来源、双次退出观察、账号身份和技能结果；旧记录缺少证据时保留缺失，绝不补写通过。",
       "续跑链核对不可变请求指纹、原计划和步骤关联；请求状态与时间不属于该指纹认证范围，仍需核对原始账本。",
     ],
   };
@@ -240,7 +287,8 @@ async function main() {
     "",
     `采集：${localTime(report.observedAt)}；观察窗口：${baseline.start} 至 ${baseline.end}（北京时间）`,
     "",
-    "**本报告不是七天验收通过证明。**",
+    `**七天自动判定：${report.acceptance}。**`,
+    ...report.acceptanceReasons.map((reason) => "- " + reason),
     "",
     ...report.notes.map((n) => "- " + n),
     "",
@@ -280,6 +328,14 @@ async function main() {
         (r: ReturnType<typeof inspectDaily>) =>
           `- ${r.date} ${laneName(r.laneId)} ${r.slot === "secondary" ? "第二轮" : "第一轮"}：${r.notes.join("；")}`,
       ),
+    ...daily.flatMap((r) =>
+      r.verification.checks
+        .filter((c) => c.status !== "passed")
+        .map(
+          (c) =>
+            `- ${r.date} ${laneName(r.laneId)} ${r.slot} / ${c.id}：${c.status} · ${c.detail.replace(/[\r\n]/g, " ")}`,
+        ),
+    ),
     "",
   ];
   const stamp =
@@ -300,7 +356,8 @@ async function main() {
   console.log(
     `已只读采集 ${daily.length} 个账号轮次；首轮流程结束 ${report.summary.firstPassFlowEnded}；续跑补齐 ${report.summary.recovered}；部分完成 ${report.summary.partial}；未到时间 ${report.summary.pending}；缺任务 ${report.summary.missing}；数据异常 ${evidence.errors.length}。报告：${join(out, "latest.md")}`,
   );
-  if (evidence.errors.length) process.exitCode = 2;
+  if (report.acceptance === "failed") process.exitCode = 3;
+  else if (report.acceptance === "insufficient-evidence") process.exitCode = 2;
 }
 void main().catch((error) => {
   console.error(String(error));

@@ -10,6 +10,7 @@ import { compileGameDraft } from "./agent";
 import { games, gamePlugins } from "./registry";
 import { historyPlan } from "./agent-history";
 import { plannerAwardLabels } from "./arknights/award-flags";
+import { agentArknightsConfig } from "./agent-configuration";
 
 export function agentExecutionGameDay(
   at: string | Date,
@@ -87,7 +88,7 @@ export function prepareAgentGame(
     );
   if (plan.gameId !== "arknights") return { plan };
   const effective = {
-    ...profile!,
+    ...agentArknightsConfig(profile!),
     ...(plan.skillIds.includes("fight")
       ? { stage: draft.parameters.stage as string }
       : {}),

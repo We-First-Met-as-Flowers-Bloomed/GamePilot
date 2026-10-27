@@ -17,7 +17,7 @@ import type { Frame, Rect, TextHit } from "../packages/runtime/device";
 const config = {
   ...defaultArknightsConfig,
   clientType: "Bilibili" as const,
-  expectedUid: "864209759",
+  expectedUid: "123456789",
 };
 const device = { name: "test", adbPath: "test", address: "test-device" };
 const hit = (text: string, box: Rect, score = 0.99): TextHit => ({
@@ -26,8 +26,8 @@ const hit = (text: string, box: Rect, score = 0.99): TextHit => ({
   score,
 });
 // The two persisted 2026-10-04 20:11:18.567 / 20:11:21.677 home OCR observations.
-// Only navigation anchors and identity hits are retained; boxes and scores are unchanged.
-const home = (index: number, uid = "864209"): Frame => ({
+// Only navigation anchors and anonymized identity hits are retained; boxes and scores are unchanged.
+const home = (index: number, uid = "123456"): Frame => ({
   width: 1920,
   height: 1080,
   texts: [
@@ -115,7 +115,7 @@ function observer(
   };
 }
 
-it("treats the two real labelled home UID prefixes as incomplete identity, never a match or a foreign full ID", () => {
+it("treats the two anonymized labelled home UID prefixes as incomplete identity, never a match or a foreign full ID", () => {
   const frames = [0, 1].map((i) =>
     classifyArknightsFrame(home(i), arknightsPackage(config), config),
   );
@@ -191,7 +191,7 @@ it("completes the strict profile login and one bounded return through the actual
   expect(ports.recognize.mock.calls.filter((c) => c[1])).toHaveLength(6);
 });
 
-it.each(["294820", "864209758"])(
+it.each(["294820", "123456208"])(
   "preserves non-prefix or full foreign ID %s and stops navigation without input",
   async (uid) => {
     const ports = observer((i) => home(i % 2, uid));
@@ -214,7 +214,7 @@ it.each(["294820", "864209758"])(
 );
 
 it("preserves a foreign complete crop instead of trusting its matching short prefix", async () => {
-  const ports = observer(home, "864209758");
+  const ports = observer(home, "123456208");
   const back = vi.fn(async () => {});
   expect((await ports.inspect()).arknights?.account).toBe("mismatch");
   await expect(
@@ -253,13 +253,13 @@ it.each(["验证码登录", "确认"])(
   },
 );
 
-it.each([{ ids: ["864209"] }, { ids: [] }])(
+it.each([{ ids: ["123456"] }, { ids: [] }])(
   "cannot generate profile login evidence when the home crop and own profile remain incomplete: $ids",
   async ({ ids }) => {
     let opened = false;
     const ports = observer(
       (i) => (opened ? profile(ids) : home(i % 2)),
-      "864209",
+      "123456",
     );
     const original = startUp();
     const navigation = {
@@ -289,7 +289,7 @@ it.each([{ ids: ["864209"] }, { ids: [] }])(
 
 it("retains conflicting complete identity reads as unverified and refuses profile proof", async () => {
   let opened = false;
-  const foreign = "864209758";
+  const foreign = "123456208";
   const ports = observer((i) =>
     opened
       ? profile([config.expectedUid, foreign])
@@ -332,15 +332,15 @@ it("does not discard a short labelled ID when no expected identity is bound", ()
       ...config,
       expectedUid: "",
     }).uid,
-  ).toBe("864209");
+  ).toBe("123456");
 });
 
 const conflictingHome = (index: number, includePrefix = false): Frame => ({
   ...home(index % 2, config.expectedUid),
   texts: [
     ...home(index % 2, config.expectedUid).texts,
-    hit("ID:864209758", [82, 680, 160, 30]),
-    ...(includePrefix ? [hit("ID:864209", [82, 730, 160, 30])] : []),
+    hit("ID:123456208", [82, 680, 160, 30]),
+    ...(includePrefix ? [hit("ID:123456", [82, 730, 160, 30])] : []),
   ],
 });
 
@@ -366,7 +366,7 @@ it.each([false, true])(
 );
 
 it("blocks conflicting complete IDs from the existing read-only home crop", async () => {
-  const ports = observer(home, [config.expectedUid, "864209758"]);
+  const ports = observer(home, [config.expectedUid, "123456208"]);
   const back = vi.fn(async () => {});
   const captured = await ports.inspect();
   expect(captured.arknights?.page).toBe("unknown");
@@ -383,7 +383,7 @@ it("blocks conflicting complete IDs from the existing read-only home crop", asyn
 });
 
 it("blocks conflicting complete own-profile IDs before returning or generating login proof", async () => {
-  const ports = observer(() => profile([config.expectedUid, "864209758"]));
+  const ports = observer(() => profile([config.expectedUid, "123456208"]));
   const navigation = {
     openProfile: vi.fn(async () => {}),
     returnHome: vi.fn(async () => {}),

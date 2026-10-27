@@ -47,8 +47,13 @@ describe("device lanes", () => {
         },
       ],
     };
-    await store.save(custom);
-    expect(await store.read()).toEqual(custom);
+    const saved = await store.save(custom);
+    expect(saved.version).toBe(2);
+    expect(saved.lanes).toHaveLength(2);
+    expect(saved.lanes[1].onmyoji.routine).toEqual(
+      custom.lanes[0].onmyoji.routine,
+    );
+    expect(await store.read()).toEqual(saved);
     custom.lanes[0].onmyoji.routine.steps[0].skillId = "shell";
     await expect(store.save(custom)).rejects.toThrow("未知技能");
     expect(
@@ -108,10 +113,45 @@ describe("device lanes", () => {
       closeEmulatorAfterSuccess: false,
     }));
     expect((await store.read()).lanes[0].instance).toBe(0);
-    await store.save({ version: 1, lanes: [laneA, laneB] });
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
-      version: 1,
-      lanes: [laneA, laneB],
+    const saved = await store.save({ version: 1, lanes: [laneA, laneB] });
+    expect(saved.version).toBe(2);
+    expect(saved.lanes.map((lane) => lane.id)).toEqual([
+      "lane-a",
+      "lane-a-onmyoji",
+      "lane-b",
+    ]);
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual(saved);
+  });
+});
+
+describe("device lanes · per-game instances", () => {
+  const withInstances = (deviceInstances: Record<string, unknown>) => ({
+    version: 1,
+    lanes: [{ ...laneA, deviceInstances }],
+  });
+
+  it("round-trips valid per-game instances", () => {
+    const parsed = validateDeviceLanes(
+      withInstances({ arknights: 0, onmyoji: 2 }),
+    );
+    expect(parsed.lanes[0].deviceInstances).toEqual({
+      arknights: 0,
+      onmyoji: 2,
     });
+  });
+
+  it("keeps them optional", () => {
+    const parsed = validateDeviceLanes({ version: 1, lanes: [laneA] });
+    expect(parsed.lanes[0].deviceInstances).toBeUndefined();
+  });
+
+  it.each([-1, 1000, 1.5, "2"])("rejects invalid instance %s", (bad) => {
+    expect(() =>
+      validateDeviceLanes(withInstances({ arknights: bad })),
+    ).toThrow();
+  });
+
+  it("rejects unknown per-game keys", () => {
+    expect(() => validateDeviceLanes(withInstances({ starrail: 1 }))).toThrow();
   });
 });

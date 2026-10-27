@@ -15,7 +15,8 @@ export const arknights: Game = {
     {
       id: "recruit",
       title: "保守自动公招",
-      description: "不用加急，只确认三星并保留高价值词条",
+      description:
+        "按账号参数选择三星/四星公招，不用加急并保留资深标签；新增选项待实机复验",
       ready: true,
     },
     {
@@ -28,13 +29,15 @@ export const arknights: Game = {
     {
       id: "fight",
       title: "理智作战",
-      description: "按现有理智代理指定关卡，不吃药、不碎石",
+      description:
+        "按保存的队列自动代理，共享药石和新增掉落目标预算；补给默认关闭，队列待实机复验",
       ready: true,
     },
     {
       id: "infrastructure",
-      title: "基建一键轮换与收菜",
-      description: "使用进驻总览一键轮换，收菜并用无人机加速贸易站",
+      title: "基建换班与收菜",
+      description:
+        "按账号选择一键轮换、效率换班或自定义排班；默认一键轮换，新增模式待实机复验",
       ready: true,
     },
     {
@@ -46,13 +49,14 @@ export const arknights: Game = {
     {
       id: "depot",
       title: "仓库材料识别",
-      description: "扫描仓库并生成材料库存识别结果",
+      description: "扫描仓库并生成材料库存识别结果；新版内核待实机复验",
       ready: true,
     },
     {
       id: "operator-box",
       title: "干员练度识别",
-      description: "扫描干员列表并生成等级、精英化和潜能识别结果",
+      description:
+        "扫描干员列表并生成等级、精英化和潜能识别结果；新版内核待实机复验",
       ready: true,
     },
     {
@@ -64,19 +68,61 @@ export const arknights: Game = {
     {
       id: "copilot",
       title: "本地作业 JSON",
-      description: "读取 MAA 作业文件自动编队和执行，不使用理智药",
+      description:
+        "读取 MAA 作业文件，按高级参数编队和执行；新增参数待实机认证",
       ready: true,
     },
     {
       id: "roguelike",
       title: "肉鸽单次探索（需看护）",
-      description: "黑流树海单次探索，自动选练度，最终 Boss 前停止",
+      description:
+        "按高级参数选择主题、策略与次数；默认单次探索，新增参数待实机认证",
       ready: true,
     },
     {
       id: "reclamation",
       title: "生息演算 RA-1（需看护）",
-      description: "重启锚点 RA-1 单批执行，不清空商店",
+      description:
+        "按高级参数执行重启锚点；默认 RA-1 单批、不清空商店，待实机认证",
+      ready: true,
+    },
+    {
+      id: "sss-copilot",
+      title: "保全派驻作业（需看护）",
+      description: "执行已配置的本地保全 JSON；原生任务参数接入，待实机认证",
+      ready: true,
+    },
+    {
+      id: "paradox-copilot",
+      title: "悖论模拟作业（需看护）",
+      description: "执行已配置的悖论模拟作业；原生任务参数接入，待实机认证",
+      ready: true,
+    },
+    {
+      id: "switch-theme",
+      title: "切换界面主题",
+      description: "按高级参数切换游戏主题；原生任务参数接入，待实机认证",
+      ready: true,
+    },
+    {
+      id: "video-recognition",
+      title: "录屏识别转作业（实验）",
+      description:
+        "读取已配置的本地战斗录屏交由 MAA 识别；待实机认证，不保证生成作业质量",
+      ready: true,
+    },
+    {
+      id: "activity-game",
+      title: "活动小游戏（实验）",
+      description:
+        "仅执行官方活动资源目录白名单且仍开放的小游戏路线；待实机认证",
+      ready: true,
+    },
+    {
+      id: "operator-progress",
+      title: "干员养成（需明确授权）",
+      description:
+        "按高级计划升级干员或技能并消耗材料；须先允许资源消耗，待实机认证",
       ready: true,
     },
   ],

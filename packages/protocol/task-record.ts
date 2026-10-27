@@ -1,6 +1,9 @@
 import type { Plan, RunEvent, RunStatus, SkillResult } from "./index";
 import { validStructuredSkillOutcome } from "./index";
-import { validArknightsEvidence } from "../../games/arknights/evidence";
+import {
+  validArknightsEvidence,
+  isLegacyCopilotEvidence,
+} from "../../games/arknights/evidence";
 import { validFailureEvidence, type FailureEvidence } from "./fault";
 
 export type StepStatus =
@@ -178,7 +181,10 @@ export function interruptTaskRecords(records: TaskRecord[], at: string) {
 }
 
 /** Read only our versioned data; a corrupt record must never become an empty success. */
-export function validateTaskRecord(value: unknown): TaskRecord {
+function validateRecord(
+  value: unknown,
+  allowLegacyCopilot: boolean,
+): TaskRecord {
   const r = value as TaskRecord;
   const date = (s: unknown) =>
     typeof s === "string" && Number.isFinite(Date.parse(s));
@@ -244,7 +250,14 @@ export function validateTaskRecord(value: unknown): TaskRecord {
         typeof s.message !== "string" ||
         !validStructuredSkillOutcome(s.result) ||
         (s.result?.arknights !== undefined &&
-          !validArknightsEvidence(s.result.arknights)) ||
+          !validArknightsEvidence(s.result.arknights) &&
+          !(
+            allowLegacyCopilot &&
+            r.gameId === "arknights" &&
+            r.plan.mode === "live" &&
+            s.skillId === "copilot" &&
+            isLegacyCopilotEvidence(s.result.arknights)
+          )) ||
         !Array.isArray(s.diagnostics) ||
         s.diagnostics.some((m) => typeof m !== "string"),
     )
@@ -268,4 +281,13 @@ export function validateTaskRecord(value: unknown): TaskRecord {
     }
   }
   return structuredClone(r);
+}
+
+/** New/current evidence must satisfy the complete native success protocol. */
+export function validateTaskRecord(value: unknown): TaskRecord {
+  return validateRecord(value, false);
+}
+/** Read old receipts without upgrading their status, adding proof or granting replay permission. */
+export function readTaskRecord(value: unknown): TaskRecord {
+  return validateRecord(value, true);
 }

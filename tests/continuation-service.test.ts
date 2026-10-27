@@ -22,7 +22,7 @@ function setup() {
     ...defaultArknightsConfig,
     id: "official",
     name: "官服",
-    expectedUid: "753108577",
+    expectedUid: "987654321",
     stage: "LS-6",
     creditShopping: true,
     mail: true,
@@ -130,6 +130,51 @@ function setup() {
     task,
   };
 }
+it("continues a frozen physical override while preserving original history", async () => {
+  const s = setup();
+  const originalLane = s.parent.snapshot.lane as DeviceLane;
+  originalLane.instance = 2;
+  s.parent.resources = [mumuResource(originalLane.managerPath, 2)];
+  s.task.instance = 2;
+  s.currentLane.deviceInstances = { arknights: 2 };
+  const before = structuredClone(s.parent);
+  const preview = await s.service.preview(s.parent.id);
+  expect(preview.canContinue).toBe(true);
+  const launch = vi.fn(async () => {});
+  await s.service.start(
+    {
+      parentId: preview.parentId,
+      fingerprint: preview.fingerprint,
+      selections: preview.defaults,
+      acknowledgePartial: true,
+    },
+    launch,
+  );
+  expect((launch.mock.calls[0] as unknown as [any])[0].lane.instance).toBe(2);
+  expect(s.parent).toEqual(before);
+  expect(s.currentLane.instance).toBe(0);
+});
+
+it("does not reroute legacy execution snapshots that retained override metadata", async () => {
+  const s = setup();
+  (s.parent.snapshot.lane as DeviceLane).deviceInstances = { arknights: 2 };
+  const before = structuredClone(s.parent);
+  const preview = await s.service.preview(s.parent.id);
+  expect(preview.canContinue).toBe(true);
+  const launch = vi.fn(async (_frozen: any) => {});
+  await s.service.start(
+    {
+      parentId: preview.parentId,
+      fingerprint: preview.fingerprint,
+      selections: preview.defaults,
+      acknowledgePartial: true,
+    },
+    launch,
+  );
+  expect(launch.mock.calls[0][0].lane.instance).toBe(0);
+  expect(launch.mock.calls[0][0].lane.deviceInstances).toBeUndefined();
+  expect(s.parent).toEqual(before);
+});
 it.each(["failed", "cancelled", "unknown", "succeeded"] as const)(
   "cannot acknowledge and replay a %s step with an unknown submitted native result",
   async (status) => {
@@ -169,103 +214,106 @@ it.each(["failed", "cancelled", "unknown", "succeeded"] as const)(
     expect(s.task).toEqual(before);
   },
 );
-it("excludes confirmed shopping after navigation failure and never reports the original whole plan as successful", async () => {
-  const s = setup();
-  const step = s.task.steps[1];
-  step.startedAt = "2026-10-03T01:01:00.000Z";
-  step.finishedAt = "2026-10-03T01:04:00.000Z";
-  step.result = {
-    arknights: {
-      version: 1,
-      taskType: "Mall",
-      submission: "submitted",
-      completion: "native-confirmed",
-      observedAt: "2026-10-03T01:03:00.000Z",
-      taskId: 7,
-      statistics: {
+it.each([100, undefined, 493])(
+  "excludes native-finished shopping with wallet %s and never reports the original whole plan as successful",
+  async (credit) => {
+    const s = setup();
+    const step = s.task.steps[1];
+    step.startedAt = "2026-10-03T01:01:00.000Z";
+    step.finishedAt = "2026-10-03T01:04:00.000Z";
+    step.result = {
+      arknights: {
         version: 1,
-        mall: {
-          purchaseConfirmations: 2,
-          creditCollected: true,
-          finalCredit: 100,
+        taskType: "Mall",
+        submission: "submitted",
+        completion: "native-confirmed",
+        observedAt: "2026-10-03T01:03:00.000Z",
+        taskId: 7,
+        statistics: {
+          version: 1,
+          mall: {
+            purchaseConfirmations: 2,
+            creditCollected: true,
+            ...(credit === undefined ? {} : { finalCredit: credit }),
+          },
         },
       },
-    },
-  };
-  const original = structuredClone({ parent: s.parent, task: s.task });
-  const preview = await s.service.preview(s.parent.id);
-  expect(preview.canContinue).toBe(true);
-  expect(preview.needsAcknowledgement).toBe(true);
-  expect(preview.steps.find((s) => s.skillId === "friends")?.status).toBe(
-    "excluded",
-  );
-  expect(preview.defaults).toEqual([
-    { gameId: "arknights", skillIds: ["award"] },
-  ]);
-  const launch = vi.fn(async () => {});
-  await s.service.start(
-    {
-      parentId: preview.parentId,
-      fingerprint: preview.fingerprint,
-      selections: preview.defaults,
-      acknowledgePartial: true,
-    },
-    launch,
-  );
-  await vi.waitFor(() => expect(launch).toHaveBeenCalledTimes(1));
-  const child = s.records[1];
-  expect(child.snapshot.continuation).toMatchObject({
-    retained: [],
-    excluded: [{ gameId: "arknights", skillIds: ["friends"] }],
-  });
-  const childPlan = child.snapshot.arknightsPlan as Plan;
-  expect(childPlan.skillIds).toEqual(["login", "award"]);
-  child.status = "succeeded";
-  child.finishedAt = "2026-10-03T04:01:00.000Z";
-  const childTask: TaskRecord = {
-    ...structuredClone(s.task),
-    executionId: child.id,
-    runId: "continued-run",
-    batchId: child.batchId,
-    plan: childPlan,
-    status: "succeeded",
-    startedAt: child.startedAt,
-    updatedAt: child.finishedAt,
-    finishedAt: child.finishedAt,
-    steps: childPlan.skillIds.map((skillId) => ({
-      skillId,
-      status: "succeeded",
-      message: "completed",
-      diagnostics: [],
-    })),
-  };
-  const details = new Map<string, ExecutionDetail>([
-    [s.parent.id, s.details.get()],
-    [
-      child.id,
+    };
+    const original = structuredClone({ parent: s.parent, task: s.task });
+    const preview = await s.service.preview(s.parent.id);
+    expect(preview.canContinue).toBe(true);
+    expect(preview.needsAcknowledgement).toBe(true);
+    expect(preview.steps.find((s) => s.skillId === "friends")?.status).toBe(
+      "excluded",
+    );
+    expect(preview.defaults).toEqual([
+      { gameId: "arknights", skillIds: ["award"] },
+    ]);
+    const launch = vi.fn(async () => {});
+    await s.service.start(
       {
-        request: child,
-        warnings: [],
-        games: [{ plan: childPlan, record: childTask }],
+        parentId: preview.parentId,
+        fingerprint: preview.fingerprint,
+        selections: preview.defaults,
+        acknowledgePartial: true,
       },
-    ],
-  ]);
-  const progress = mergeExecutionProgress(s.parent.id, s.records, details);
-  expect(progress.warnings).toEqual([]);
-  expect(progress.outcome).toBe("partial");
-  expect(progress.wholePlanComplete).toBe(false);
-  expect(progress.counts).toEqual({
-    total: 2,
-    completed: 1,
-    skipped: 0,
-    excluded: 1,
-    remaining: 0,
-  });
-  expect(progress.steps.find((s) => s.skillId === "friends")?.status).toBe(
-    "excluded",
-  );
-  expect({ parent: s.parent, task: s.task }).toEqual(original);
-});
+      launch,
+    );
+    await vi.waitFor(() => expect(launch).toHaveBeenCalledTimes(1));
+    const child = s.records[1];
+    expect(child.snapshot.continuation).toMatchObject({
+      retained: [],
+      excluded: [{ gameId: "arknights", skillIds: ["friends"] }],
+    });
+    const childPlan = child.snapshot.arknightsPlan as Plan;
+    expect(childPlan.skillIds).toEqual(["login", "award"]);
+    child.status = "succeeded";
+    child.finishedAt = "2026-10-03T04:01:00.000Z";
+    const childTask: TaskRecord = {
+      ...structuredClone(s.task),
+      executionId: child.id,
+      runId: "continued-run",
+      batchId: child.batchId,
+      plan: childPlan,
+      status: "succeeded",
+      startedAt: child.startedAt,
+      updatedAt: child.finishedAt,
+      finishedAt: child.finishedAt,
+      steps: childPlan.skillIds.map((skillId) => ({
+        skillId,
+        status: "succeeded",
+        message: "completed",
+        diagnostics: [],
+      })),
+    };
+    const details = new Map<string, ExecutionDetail>([
+      [s.parent.id, s.details.get()],
+      [
+        child.id,
+        {
+          request: child,
+          warnings: [],
+          games: [{ plan: childPlan, record: childTask }],
+        },
+      ],
+    ]);
+    const progress = mergeExecutionProgress(s.parent.id, s.records, details);
+    expect(progress.warnings).toEqual([]);
+    expect(progress.outcome).toBe("partial");
+    expect(progress.wholePlanComplete).toBe(false);
+    expect(progress.counts).toEqual({
+      total: 2,
+      completed: 1,
+      skipped: 0,
+      excluded: 1,
+      remaining: 0,
+    });
+    expect(progress.steps.find((s) => s.skillId === "friends")?.status).toBe(
+      "excluded",
+    );
+    expect({ parent: s.parent, task: s.task }).toEqual(original);
+  },
+);
 it("starts only remaining frozen steps with a fresh login, preserving parent and resource binding", async () => {
   const s = setup(),
     original = structuredClone(s.parent);
@@ -286,7 +334,7 @@ it("starts only remaining frozen steps with a fresh login, preserving parent and
   await vi.waitFor(() => expect(launch).toHaveBeenCalledTimes(1));
   const frozen = launch.mock.calls[0][0] as any;
   expect(frozen.arknightsPlan.skillIds).toEqual(["login", "friends", "award"]);
-  expect(frozen.profile.expectedUid).toBe("753108577");
+  expect(frozen.profile.expectedUid).toBe("987654321");
   expect(
     s.executions.begin.mock.calls[0][0].snapshot.continuation.parentId,
   ).toBe(s.parent.id);

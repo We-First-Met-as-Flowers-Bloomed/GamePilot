@@ -5,6 +5,7 @@ import { mkdir, lstat, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { validateDevice, type Device } from "../protocol";
 import type { FailureCapture } from "../protocol/fault";
+import { captureAndroidDisplay } from "./android-capture";
 type CaptureCommand = (
   file: string,
   args: string[],
@@ -41,11 +42,10 @@ export async function captureFailureImage(
     )
       throw Error("capture storage unavailable");
     signal.throwIfAborted();
-    const png = await run(
-      checked.adbPath,
-      ["-s", checked.address, "exec-out", "screencap", "-p"],
-      signal,
-    );
+    const {image: png} = await captureAndroidDisplay(checked, (file, args) => {
+      signal.throwIfAborted();
+      return run(file, args, signal);
+    }, 8 * 1024 * 1024);
     signal.throwIfAborted();
     if (
       png.length < 45 ||

@@ -14,7 +14,9 @@ import {
 import { isGuildKirinWindow } from "./onmyoji/policy";
 import { games, dailySkills, gamePlugins } from "./registry";
 import { compileDailyPlan } from "./routines";
+import type { TrustedGameRegistry } from "./plugin";
 import { plannerAwardLabels } from "./arknights/award-flags";
+import { agentArknightsConfig } from "./agent-configuration";
 import {
   compiledCapabilityEffects,
   gameCapabilityDescriptors,
@@ -25,20 +27,27 @@ export function gameAgentCatalog() {
   return gameCapabilityDescriptors();
 }
 
-export function validateGameOrder(inputs: GameDraftInput[]) {
-  if (inputs.some((g) => !games.some((game) => game.id === g.gameId)))
+export function validateGameOrder(
+  inputs: GameDraftInput[],
+  registry: TrustedGameRegistry = gamePlugins,
+) {
+  if (
+    inputs.some(
+      (g) => !registry.descriptors().some((game) => game.id === g.gameId),
+    )
+  )
     throw new AgentToolError("UNSUPPORTED_GAME", "未知游戏");
   if (
     inputs.some(
       (input, index) =>
         index > 0 &&
-        gamePlugins.get(inputs[index - 1].gameId).order >=
-          gamePlugins.get(input.gameId).order,
+        registry.get(inputs[index - 1].gameId).order >=
+          registry.get(input.gameId).order,
     )
   )
     throw new AgentToolError(
       "INVALID_ORDER",
-      "当前双游戏计划必须先明日方舟，再阴阳师",
+      "游戏计划必须遵循已注册插件顺序，不能重复游戏",
     );
 }
 
@@ -83,7 +92,7 @@ export function compileBuiltinGameDraft(
   const now = new Date(at);
   const effective = profile
     ? {
-        ...profile,
+        ...agentArknightsConfig(profile),
         ...(params.stage === undefined
           ? {}
           : { stage: params.stage as string }),

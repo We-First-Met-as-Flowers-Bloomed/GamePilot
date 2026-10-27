@@ -123,6 +123,16 @@ export function useChat(api?: DesktopAPI) {
       api && typeof api.archiveChat === "function"
         ? perform(() => api.archiveChat({ sessionId }))
         : Promise.resolve(false),
+    restore: (archiveId: string) =>
+      api && typeof api.restoreArchivedChat === "function"
+        ? perform(() => api.restoreArchivedChat({ archiveId }))
+        : Promise.resolve(false),
+    delete: (sessionId: string) =>
+      api && typeof api.deleteChat === "function"
+        ? perform(() =>
+            api.deleteChat({ sessionId, confirmation: "delete-chat" }),
+          )
+        : Promise.resolve(false),
   };
 }
 export type ChatController = ReturnType<typeof useChat>;

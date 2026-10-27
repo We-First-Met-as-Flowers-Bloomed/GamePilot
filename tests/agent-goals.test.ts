@@ -18,6 +18,20 @@ const recoverySafety = {
   nativeSubmission: "not-submitted" as const,
 };
 const owner = { sessionId: "session-a", turnId: "turn-a" };
+it("rejects a changed fingerprint after local confirmation even when scopes are unchanged", async () => {
+  const s = setup();
+  const goal = await s.create({
+    grant: {
+      ...grant(),
+      source: "local-confirmation",
+      planHash: "confirmed-account-A",
+    },
+  });
+  s.prepared.fingerprint = "unconfirmed-account-B";
+  await s.service.submit(goal.id, owner);
+  expect(s.submit).not.toHaveBeenCalled();
+  expect(s.service.get(goal.id, owner).submission).toBeUndefined();
+});
 const scope: GoalScope = {
   laneId: "lane-a",
   gameId: "arknights",

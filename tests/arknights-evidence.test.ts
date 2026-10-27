@@ -14,8 +14,8 @@ it("validates profile identity and later home evidence together while preserving
     taskId: 1,
     observedAt: "2026-09-30T12:00:00Z",
     login: {
-      expectedUid: "864209759",
-      observedUid: "864209759",
+      expectedUid: "123456789",
+      observedUid: "123456789",
       observedAt: "2026-09-30T12:00:01Z",
       home: true,
     },

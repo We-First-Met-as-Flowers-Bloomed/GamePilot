@@ -129,12 +129,16 @@ export default function ChatArchives({
   pending: chatPending,
   active,
   onArchive,
+  browser = false,
+  onRestore,
 }: {
   api?: DesktopAPI;
   session?: ChatSession;
   pending: boolean;
   active: boolean;
   onArchive?: (sessionId: string) => Promise<boolean>;
+  browser?: boolean;
+  onRestore?: (archiveId: string) => Promise<boolean>;
 }) {
   const [entries, setEntries] = useState<ChatArchiveEntry[]>([]),
     [nextCursor, setNextCursor] = useState<string>(),
@@ -165,6 +169,12 @@ export default function ChatArchives({
       detailEpoch.current++;
     };
   }, [api]);
+  useEffect(() => {
+    if (browser && supported) {
+      setOpened(true);
+      void perform(() => list());
+    }
+  }, [api, browser]);
   async function perform(job: () => Promise<void>) {
     if (working.current) return;
     const generation = epoch.current;
@@ -234,6 +244,7 @@ export default function ChatArchives({
   return (
     <details
       className="chat-response-details chat-archives"
+      open={browser ? true : undefined}
       onToggle={(event) => {
         if (event.currentTarget.open && !opened) {
           setOpened(true);
@@ -253,38 +264,40 @@ export default function ChatArchives({
           </p>
         ) : (
           <>
-            <div className="chat-archive-current">
-              <div>
-                <strong>当前会话</strong>
-                <p>{session?.title ?? "未选择会话"}</p>
-                <small>
-                  32 个会话 / 每会话 64 轮预算，归档后可继续新会话。
-                </small>
+            {!browser && (
+              <div className="chat-archive-current">
+                <div>
+                  <strong>当前会话</strong>
+                  <p>{session?.title ?? "未选择会话"}</p>
+                  <small>
+                    32 个会话 / 每会话 64 轮预算，归档后可继续新会话。
+                  </small>
+                </div>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={
+                    pending ||
+                    chatPending ||
+                    active ||
+                    !session?.turns.length ||
+                    !onArchive
+                  }
+                  onClick={() => {
+                    if (!session || !onArchive) return;
+                    void perform(async () => {
+                      if (await onArchive(session.id)) await list();
+                      else
+                        throw Error(
+                          "归档未完成，请查看当前会话状态；原记录保留。",
+                        );
+                    });
+                  }}
+                >
+                  归档当前会话
+                </button>
               </div>
-              <button
-                type="button"
-                className="button"
-                disabled={
-                  pending ||
-                  chatPending ||
-                  active ||
-                  !session?.turns.length ||
-                  !onArchive
-                }
-                onClick={() => {
-                  if (!session || !onArchive) return;
-                  void perform(async () => {
-                    if (await onArchive(session.id)) await list();
-                    else
-                      throw Error(
-                        "归档未完成，请查看当前会话状态；原记录保留。",
-                      );
-                  });
-                }}
-              >
-                归档当前会话
-              </button>
-            </div>
+            )}
             {active && (
               <p className="helper">本会话仍在处理，结束后可手动归档。</p>
             )}
@@ -335,6 +348,27 @@ export default function ChatArchives({
             )}
             {page && (
               <>
+                {onRestore && (
+                  <button
+                    type="button"
+                    className="button primary chat-archive-restore"
+                    disabled={
+                      pending ||
+                      chatPending ||
+                      typeof api?.restoreArchivedChat !== "function"
+                    }
+                    onClick={() =>
+                      void perform(async () => {
+                        if (!(await onRestore(page.archive.id)))
+                          throw Error(
+                            "恢复未完成，请查看会话状态；归档原文保留。",
+                          );
+                      })
+                    }
+                  >
+                    恢复到对话列表
+                  </button>
+                )}
                 <ChatArchiveTranscript page={page} />
                 {page.nextCursor && (
                   <button

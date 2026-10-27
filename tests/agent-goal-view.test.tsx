@@ -264,3 +264,18 @@ it("does not replace a synchronously delivered current state with an initial rea
   expect(errors).not.toHaveBeenCalledWith(expect.stringContaining("无法读取"));
   close();
 });
+
+it("does not promote an overall unknown goal even if its aggregate satisfaction contradicts that status", () => {
+  const value = { ...goal("unknown"), goalSatisfied: true };
+  const html = renderToStaticMarkup(
+    createElement(GoalCard, {
+      goal: value,
+      pending: false,
+      onCancel: () => {},
+      onOpenExecution: () => {},
+    }),
+  );
+  expect(html).toContain("结果尚未确认");
+  expect(html).toContain("目标满足情况未确认");
+  expect(html).not.toContain("目标已核验满足");
+});

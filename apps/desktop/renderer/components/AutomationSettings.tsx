@@ -4,6 +4,48 @@ import type {
   AutomationSettings as Config,
   MuMuInstallation,
 } from "../../../../packages/protocol";
+
+export function OnmyojiScheduleSettings({
+  enabled,
+  time,
+  disabled,
+  onChange,
+}: {
+  enabled: boolean;
+  time: string;
+  disabled: boolean;
+  onChange(patch: { scheduleEnabled?: boolean; scheduleTime?: string }): void;
+}) {
+  return (
+    <>
+      <label style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <input
+          style={{ width: 16, margin: 0 }}
+          type="checkbox"
+          checked={enabled}
+          disabled={disabled}
+          onChange={(event) =>
+            onChange({ scheduleEnabled: event.target.checked })
+          }
+        />
+        阴阳师每天定时执行，错过后当天补跑
+      </label>
+      <label>
+        阴阳师执行时间（电脑本地时间）
+        <input
+          type="time"
+          value={time}
+          disabled={disabled}
+          onChange={(event) => onChange({ scheduleTime: event.target.value })}
+        />
+      </label>
+      <p className="muted">
+        明日方舟自动计划请在每日任务页按账号编辑，可设置多个时段、星期与任务步骤。
+      </p>
+    </>
+  );
+}
+
 export default function AutomationSettings({
   api,
 }: {
@@ -44,7 +86,9 @@ export default function AutomationSettings({
     setBusy(true);
     setMessage("");
     try {
-      setConfig(await api.saveAutomation(config));
+      setConfig(
+        await api.saveAutomation({ ...config, secondScheduleEnabled: false }),
+      );
       setMessage("已保存，定时设置立即生效；打开后执行开关在下次启动时生效");
     } catch (e) {
       setMessage(String(e));
@@ -56,7 +100,7 @@ export default function AutomationSettings({
     <section className="surface">
       <h3>每日计划 · 启动与自动化</h3>
       <p className="muted">
-        第一轮使用「每日计划」中启用的设备和游戏；第二轮只运行其中已启用的明日方舟账号。两轮分别记录结果，账号配置保持一致。
+        在此管理应用启动、模拟器连接与寄养维护。两款游戏的定时、星期与步骤均在每日任务页按账号编辑。
       </p>
       {config && (
         <>
@@ -113,12 +157,7 @@ export default function AutomationSettings({
             [
               ["openAtLogin", "登录 Windows 后启动 GamePilot"],
               ["launchEmulator", "执行任务前自动启动并连接 MuMu"],
-              ["runOnLaunch", "打开 GamePilot 后自动执行每日任务"],
-              ["scheduleEnabled", "每天定时执行，错过后当天补跑"],
-              [
-                "secondScheduleEnabled",
-                "增加第二轮日常（仅明日方舟，需启用每天定时执行）",
-              ],
+              ["runOnLaunch", "打开 GamePilot 后自动执行阴阳师日常"],
               [
                 "fosterScheduleEnabled",
                 "每 6 小时检查寄养并更换满级式神（结果未确认时暂停；先核对并处置原任务，再重新启用以检查恢复条件）",
@@ -130,46 +169,34 @@ export default function AutomationSettings({
                 "成功后关闭本次由 GamePilot 启动的 MuMu",
               ],
             ] as const
-          ).map(([key, label]) => (
-            <label
-              key={key}
-              style={{ display: "flex", alignItems: "center", gap: 12 }}
-            >
-              <input
-                style={{ width: 16, margin: 0 }}
-                type="checkbox"
-                checked={config[key]}
-                onChange={(e) =>
-                  setConfig({ ...config, [key]: e.target.checked })
-                }
-              />
-              {label}
-            </label>
-          ))}
-          <label>
-            第一轮执行时间（电脑本地时间）
-            <input
-              type="time"
-              value={config.scheduleTime}
-              onChange={(e) =>
-                setConfig({ ...config, scheduleTime: e.target.value })
-              }
+          )
+            .filter(([key]) => key !== "runOnLaunch" || !api?.onmyojiAutomation)
+            .map(([key, label]) => (
+              <label
+                key={key}
+                style={{ display: "flex", alignItems: "center", gap: 12 }}
+              >
+                <input
+                  style={{ width: 16, margin: 0 }}
+                  type="checkbox"
+                  checked={config[key]}
+                  onChange={(e) =>
+                    setConfig({ ...config, [key]: e.target.checked })
+                  }
+                />
+                {label}
+              </label>
+            ))}
+          {!api?.onmyojiAutomation && (
+            <OnmyojiScheduleSettings
+              enabled={config.scheduleEnabled}
+              time={config.scheduleTime}
+              disabled={busy}
+              onChange={(patch) => setConfig({ ...config, ...patch })}
             />
-          </label>
-          {config.secondScheduleEnabled && (
-            <label>
-              第二轮执行时间（仅明日方舟，电脑本地时间）
-              <input
-                type="time"
-                value={config.secondScheduleTime}
-                onChange={(e) =>
-                  setConfig({ ...config, secondScheduleTime: e.target.value })
-                }
-              />
-            </label>
           )}
           <p className="muted">
-            同一游戏日每轮最多自动尝试一次，早晚互不阻挡。错过多轮只补最近已到时间的一轮；设备忙时等待空闲。若希望严格到点再跑，请关闭「打开后自动执行」。结界维护按最近成功时间每
+            日常按账号计划运行，结果未确认时先核对原记录。结界维护按最近成功时间每
             6
             小时独立运行，错过后在应用恢复时补做。失败或取消后请检查现场；既有模拟器会保留。托盘菜单中的「退出」会结束常驻，关机或睡眠期间不执行。
           </p>
@@ -192,8 +219,7 @@ export default function AutomationSettings({
             发送测试通知
           </button>
           <p className="muted">
-            具体任务沿用每日计划和各账号设置；第一轮按明日方舟 →
-            阴阳师顺序运行。需要先登录账号并准备阵容。
+            阴阳师具体任务沿用每日任务和各账号设置。需要先登录账号并准备阵容。
           </p>
           <button
             type="button"

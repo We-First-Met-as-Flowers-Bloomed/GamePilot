@@ -1,6 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { ConnectionUnavailableError } from "../protocol/failure";
+import { deriveMumuConnection } from "./mumu-connection";
+import { readActivityNavigation } from "./maa-activity-resource";
 
 export class MaaCoreClient {
   private child?: ChildProcessWithoutNullStreams;
@@ -22,6 +24,7 @@ export class MaaCoreClient {
     private exePath: string,
     private coreDir: string,
     private logDir: string,
+    private connectionOptions: { clientType?: string } = {},
   ) {}
   private fail(error: Error) {
     this.dead = error;
@@ -97,15 +100,22 @@ export class MaaCoreClient {
     });
   }
   info(): Promise<{ version: string }> {
-    return (this.ready ??= this.request("init", {
-      coreDir: this.coreDir,
-      logDir: this.logDir,
-    }));
+    return (this.ready ??= this.initialize());
+  }
+  private async initialize():Promise<{version:string}> {
+    const root=process.env.GAMEPILOT_MAA_ACTIVITY_ROOT;
+    const navigation=root?await readActivityNavigation(root):undefined;
+    return this.request("init", {coreDir:this.coreDir,logDir:this.logDir,
+      ...(navigation?{activityDirectory:navigation.directory,activitySha256:navigation.sha256}:{})});
   }
   async connect(adbPath: string, address: string): Promise<void> {
+    const mumu = deriveMumuConnection(adbPath, address);
     await this.info();
     try {
-      await this.request("connect", { adbPath, address });
+      await this.request("connect", {
+        adbPath, address,
+        ...(mumu ? {mumu: {...mumu, clientType: this.connectionOptions.clientType ?? "Official"}} : {}),
+      });
     } catch (error) {
       if (
         error instanceof Error &&

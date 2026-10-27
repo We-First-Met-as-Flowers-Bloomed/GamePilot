@@ -13,6 +13,12 @@ import type { TaskRecord } from "../packages/protocol/task-record";
 import { mumuResource } from "../apps/desktop/main/execution-coordinator";
 import { prepareAgentExecution } from "../apps/desktop/main/agent-execution-policy";
 import { completedContinuationRequestIds } from "../games/continuation-history";
+import {
+  fightTasksFor,
+  taskFor,
+  type ArknightsConfig,
+} from "../games/arknights/config";
+import { compileGameDraft } from "../games/agent";
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -26,6 +32,8 @@ async function setup(
   skillIds = ["login", "fight", "award"],
   parameters: Record<string, unknown> = {},
   gameId = "arknights",
+  identity?: { roleId: string; serverName: string },
+  profileSettings: Partial<ArknightsConfig> = {},
 ) {
   const dir = await mkdtemp(join(tmpdir(), "gp-agent-confirm-"));
   dirs.push(dir);
@@ -34,6 +42,7 @@ async function setup(
   const profiles = raw.profiles!;
   const oldIds = profiles.profiles.map((p) => p.id);
   profiles.profiles.forEach((p, i) => {
+    Object.assign(p, structuredClone(profileSettings));
     p.id = `private-account-${i}`;
     p.name = `账号 ${i}`;
   });
@@ -45,6 +54,10 @@ async function setup(
     l.arknights.profileId =
       profiles.profiles[oldIds.indexOf(l.arknights.profileId)].id;
     l.closeEmulatorAfterSuccess = true;
+    if (identity) {
+      l.identityRequired = true;
+      l.onmyoji.identity = structuredClone(identity);
+    }
   });
   await writeFile(join(dir, "device-lanes.json"), JSON.stringify(lanes));
   await writeFile(join(dir, "arknights.json"), JSON.stringify(profiles));
@@ -88,6 +101,109 @@ async function setup(
   };
   return { state, context, draft };
 }
+
+it("freezes the reviewed zero-supply AI configuration instead of hidden saved expiring medicine or queues", async () => {
+  const { state, context } = await setup(
+    ["login", "fight"],
+    {},
+    "arknights",
+    undefined,
+    {
+      taskOptions: {
+        fight: { medicineExpireDays: 7, stages: ["LS-6", "1-7"] },
+        mall: { creditFight: true },
+      },
+      extendedOptions: {
+        operProgress: {
+          allowMaterialConsumption: true,
+          plans: [{ name: "芬", skillLevel: 2 }],
+        },
+      },
+      copilotOptions: { useSanityPotion: true },
+    },
+  );
+  const frozen = prepareAgentExecution(state, context, now);
+  for (const snapshot of frozen) {
+    const { id: _id, name: _name, ...config } = snapshot.profile!;
+    const tasks = fightTasksFor(config);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].params).toMatchObject({
+      medicine: 0,
+      stone: 0,
+      medicine_expire_days: 0,
+      expiring_medicine: 0,
+    });
+    expect(taskFor("friends", config).params.credit_fight).toBe(false);
+    expect(snapshot.profile?.extendedOptions).toBeUndefined();
+    expect(snapshot.profile?.copilotOptions).toBeUndefined();
+    expect(snapshot.arknightsPlan?.skillIds).toEqual(["login", "fight"]);
+  }
+  expect(
+    context.profiles.profiles[0].taskOptions?.fight?.medicineExpireDays,
+  ).toBe(7);
+  expect(
+    context.profiles.profiles[0].extendedOptions?.operProgress
+      ?.allowMaterialConsumption,
+  ).toBe(true);
+});
+
+it("compiles AI resource declarations from its safe projection even when passed the full saved profile", async () => {
+  const { context } = await setup();
+  const profile = context.profiles.profiles[0];
+  profile.taskOptions = {
+    fight: { medicine: 5, stone: 2, medicineExpireDays: 7 },
+  };
+  const compiled = compileGameDraft(
+    { gameId: "arknights", skillIds: ["fight"] },
+    context.lanes.lanes[0],
+    profile,
+    at,
+  );
+  expect(compiled.parameters).toMatchObject({
+    medicine: 0,
+    stone: 0,
+    expiringMedicine: 0,
+  });
+  expect(profile.taskOptions.fight?.medicine).toBe(5);
+});
+
+it("freezes custom drafts on their game-specific physical devices", async () => {
+  const { state, context } = await setup();
+  context.lanes.lanes.forEach((lane, i) => {
+    lane.deviceInstances = { arknights: i + 2, onmyoji: i + 4 };
+  });
+  const frozen = prepareAgentExecution(state, context, now);
+  expect(frozen.map((item) => item.lane.instance)).toEqual([2, 3]);
+  expect(frozen.every((item) => item.lane.deviceInstances === undefined)).toBe(
+    true,
+  );
+});
+
+it("admits a copied Onmyoji channel with its bound identity and rejects later identity changes", async () => {
+  const identity = { roleId: "role-own-123", serverName: "测试区" };
+  const { state, context } = await setup(
+    ["login", "mail"],
+    {},
+    "onmyoji",
+    identity,
+  );
+  const frozen = prepareAgentExecution(state, context, now);
+  expect(frozen[0].lane.onmyoji.identity).toEqual(identity);
+  context.lanes.lanes[0].onmyoji.identity!.roleId = "role-different";
+  expect(() => prepareAgentExecution(state, context, now)).toThrow(
+    /身份绑定已变化/,
+  );
+});
+
+it("rejects physical collisions introduced by custom draft overrides", async () => {
+  const { state, context } = await setup();
+  context.lanes.lanes.forEach((lane) => {
+    lane.deviceInstances = { arknights: 2 };
+  });
+  expect(() => prepareAgentExecution(state, context, now)).toThrow(
+    /同一个模拟器/,
+  );
+});
 
 it("freezes only account two Onmyoji mail without requiring a selected Arknights identity", async () => {
   const { state, context, draft } = await setup(

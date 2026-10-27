@@ -5,7 +5,10 @@ import type {
   TaskRecord,
   TaskStepRecord,
 } from "../packages/protocol/task-record";
-import { validArknightsEvidence } from "./arknights/evidence";
+import {
+  validArknightsEvidence,
+  isLegacyCopilotEvidence,
+} from "./arknights/evidence";
 import { projectExecutionDetail } from "./execution-detail";
 import { mergeExecutionProgress } from "./execution-progress";
 import { gamePlugins } from "./registry";
@@ -115,6 +118,13 @@ export function evaluateGameSkillOutcome(
     step.evidence === "rehearsal"
   )
     return output;
+  if (gameId === "arknights" && isLegacyCopilotEvidence(result?.arknights))
+    return {
+      ...output,
+      goalSatisfied: null,
+      summary:
+        "旧版作业只证明原任务链结束，逐场三星及前后账号/主页目标尚未核验",
+    };
   const criteria = snapshot.goalCriteria as GoalOutcomeCriteria | undefined;
   const native =
     gameId === "arknights" && validArknightsEvidence(result?.arknights)

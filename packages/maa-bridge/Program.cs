@@ -1,5 +1,47 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.Win32.SafeHandles;
+
+// The MuMu SDK statically links its CRT and writes diagnostics directly to stdout.
+// Keep a private, non-inheritable protocol pipe before loading any native library.
+static class NativeOutput {
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr GetStdHandle(int kind);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetStdHandle(int kind, IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source, IntPtr targetProcess, out IntPtr target, uint access, bool inherit, uint options);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool WriteFile(IntPtr file, byte[] buffer, uint size, out uint written, IntPtr overlapped);
+    [DllImport("ucrtbase.dll", CallingConvention=CallingConvention.Cdecl)] static extern int _dup2(int source, int target);
+    [DllImport("ucrtbase.dll", CallingConvention=CallingConvention.Cdecl)] static extern int puts([MarshalAs(UnmanagedType.LPUTF8Str)] string text);
+    [DllImport("ucrtbase.dll", CallingConvention=CallingConvention.Cdecl)] static extern int fflush(IntPtr stream);
+    static SafeFileHandle? nativeStdout;
+    static SafeFileHandle Duplicate(IntPtr source) {
+        var process=GetCurrentProcess();
+        if(!DuplicateHandle(process,source,process,out var result,0,false,2))
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        return new SafeFileHandle(result,true);
+    }
+    public static TextWriter PreserveProtocol() {
+        var protocol=Duplicate(GetStdHandle(-11));
+        try {
+            // Redirect an already initialized shared CRT as well as future static CRTs.
+            if(_dup2(2,1)!=0) throw new IOException("Cannot isolate native CRT stdout");
+            nativeStdout=Duplicate(GetStdHandle(-12));
+            if(!SetStdHandle(-11,nativeStdout.DangerousGetHandle()))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            Console.SetOut(Console.Error);
+            return new StreamWriter(new FileStream(protocol,FileAccess.Write),new System.Text.UTF8Encoding(false)) { AutoFlush=true };
+        } catch { protocol.Dispose(); throw; }
+    }
+    public static void WriteDiagnosticProbe() {
+        puts("native CRT diagnostic");
+        var bytes=System.Text.Encoding.UTF8.GetBytes("native Windows diagnostic\n");
+        if(!WriteFile(GetStdHandle(-11),bytes,(uint)bytes.Length,out var written,IntPtr.Zero) || written!=bytes.Length)
+            throw new IOException("Native output probe failed");
+        Console.WriteLine("managed diagnostic");
+        // Deliberately flush after protocol messages, like the SDK's deferred printf.
+        fflush(IntPtr.Zero);
+    }
+}
 
 static class Native {
     const string Dll = "MaaCore";
@@ -10,6 +52,8 @@ static class Native {
     [DllImport(Dll, CallingConvention=CallingConvention.StdCall)] public static extern IntPtr AsstCreateEx(Callback callback, IntPtr arg);
     [DllImport(Dll, CallingConvention=CallingConvention.StdCall)] public static extern void AsstDestroy(IntPtr handle);
     [DllImport(Dll, CallingConvention=CallingConvention.StdCall)] public static extern byte AsstConnect(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string adb, [MarshalAs(UnmanagedType.LPUTF8Str)] string address, [MarshalAs(UnmanagedType.LPUTF8Str)] string config);
+    [DllImport(Dll, CallingConvention=CallingConvention.StdCall)] public static extern void AsstSetConnectionExtras([MarshalAs(UnmanagedType.LPUTF8Str)] string name, [MarshalAs(UnmanagedType.LPUTF8Str)] string extras);
+    [DllImport(Dll, CallingConvention=CallingConvention.StdCall)] public static extern byte AsstSetInstanceOption(IntPtr handle, int key, [MarshalAs(UnmanagedType.LPUTF8Str)] string value);
     [DllImport(Dll, CallingConvention=CallingConvention.StdCall)] public static extern int AsstAppendTask(IntPtr handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string type, [MarshalAs(UnmanagedType.LPUTF8Str)] string parameters);
     [DllImport(Dll, CallingConvention=CallingConvention.StdCall)] public static extern byte AsstStart(IntPtr handle);
     [DllImport(Dll, CallingConvention=CallingConvention.StdCall)] public static extern byte AsstStop(IntPtr handle);
@@ -53,12 +97,13 @@ static class EngineContract {
 
 class Program {
     static readonly object OutputLock = new(), StateLock = new();
+    static TextWriter protocolOutput = Console.Out;
     static IntPtr handle;
     static TaskOutcome? outcome;
     static Task? active;
     static bool stopping;
     static Native.Callback callback = OnCallback;
-    static void Emit(object value) { lock(OutputLock) Console.WriteLine(JsonSerializer.Serialize(value)); }
+    static void Emit(object value) { lock(OutputLock) protocolOutput.WriteLine(JsonSerializer.Serialize(value)); }
     static void OnCallback(int message, IntPtr details, IntPtr arg) {
         try {
             lock(StateLock) outcome?.Receive(message);
@@ -69,7 +114,7 @@ class Program {
     static bool IsSupportedTaskType(string type) => type is
         "StartUp" or "Award" or "Mall" or "Fight" or "Infrast" or "Recruit" or
         "Depot" or "OperBox" or "Copilot" or "SSSCopilot" or "ParadoxCopilot" or
-        "Roguelike" or "Reclamation";
+        "Roguelike" or "Reclamation" or "SwitchTheme" or "VideoRecognition" or "CloseDown" or "Custom" or "OperProgress";
     static void Check(byte value, string error) { if(value == 0) throw new Exception(error); }
     static async Task Stop() {
         lock(StateLock) { stopping = true; }
@@ -95,10 +140,17 @@ class Program {
             var cancelled = new TaskOutcome(); cancelled.Receive(10004); cancelled.Receive(3);
             if(cancelled.Error == null) throw new Exception("Cancellation overwritten");
             Console.WriteLine("Callback outcome tests passed");
-            foreach(var type in new[]{"Infrast","Recruit","Depot","OperBox","Copilot","SSSCopilot","ParadoxCopilot","Roguelike","Reclamation"})
+            foreach(var type in new[]{"Infrast","Recruit","Depot","OperBox","Copilot","SSSCopilot","ParadoxCopilot","Roguelike","Reclamation","SwitchTheme","VideoRecognition","CloseDown"})
                 if(!IsSupportedTaskType(type)) throw new Exception($"Task type allowlist missing {type}");
             if(IsSupportedTaskType("Arbitrary")) throw new Exception("Task type allowlist failed");
             Console.WriteLine("Task type allowlist tests passed"); return;
+        }
+        protocolOutput=NativeOutput.PreserveProtocol();
+        if(args.Contains("--self-test-native-output")) {
+            Emit(new {id=1,ok=true,result="before native diagnostics"});
+            NativeOutput.WriteDiagnosticProbe();
+            Emit(new {id=2,ok=true,result="after native diagnostics"});
+            return;
         }
         try {
             string? line;
@@ -119,6 +171,24 @@ class Program {
                         if(version.TrimStart('v') != EngineContract.Version.TrimStart('v')) throw new Exception($"MaaCore version mismatch: {version}; expected {EngineContract.Version}");
                         Check(Native.AsstSetUserDir(log),"Cannot set MaaCore log directory");
                         Check(Native.AsstLoadResource(dir),"Cannot load matching MaaCore resources");
+                        if(req.TryGetProperty("activityDirectory",out var activityDirectory)) {
+                            var overlay=Path.GetFullPath(activityDirectory.GetString() ?? "");
+                            var resource=Path.Combine(overlay,"resource");
+                            var taskDirectory=Path.Combine(resource,"tasks");
+                            var tasks=Path.Combine(taskDirectory,"activity.json");
+                            foreach(var path in new[]{overlay,resource,taskDirectory,tasks})
+                                if((File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0) throw new Exception("Linked activity resources rejected");
+                            foreach(var pair in new[]{(overlay,resource),(resource,taskDirectory),(taskDirectory,tasks)}) {
+                                var entries=Directory.GetFileSystemEntries(pair.Item1);
+                                if(entries.Length!=1 || !string.Equals(entries[0],pair.Item2,StringComparison.OrdinalIgnoreCase))
+                                    throw new Exception("Unexpected activity resource files rejected");
+                            }
+                            var info=new FileInfo(tasks);
+                            if(info.Length>2*1024*1024) throw new Exception("Activity resource too large");
+                            var hash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(tasks))).ToLowerInvariant();
+                            if(hash!=Str(req,"activitySha256")) throw new Exception("Activity resource digest mismatch");
+                            Check(Native.AsstLoadResource(overlay),"Cannot load verified official activity navigation");
+                        }
                         handle=Native.AsstCreateEx(callback,IntPtr.Zero);
                         if(handle == IntPtr.Zero) throw new Exception("Cannot create MaaCore instance");
                         Emit(new { id, ok=true, result=new { version } }); continue;
@@ -161,7 +231,20 @@ class Program {
                     if(method == "stop" || method == "close") await Stop();
                     else if(method == "connect") {
                         if(active != null && !active.IsCompleted) throw new Exception("Task already running");
-                        Check(Native.AsstConnect(handle,Str(req,"adbPath"),Str(req,"address"),"General"),"MaaCore connection failed");
+                        var config = "General";
+                        if(req.TryGetProperty("mumu", out var mumu)) {
+                            var path = Str(mumu,"path"); var index = mumu.GetProperty("index").GetInt32();
+                            var client = Str(mumu,"clientType");
+                            if(!Path.IsPathFullyQualified(path) || path.Any(char.IsControl) || index < 0 || index > 999 ||
+                                Str(req,"address") != $"127.0.0.1:{16384 + 32 * index}" ||
+                                client is not ("Official" or "Bilibili" or "YoStarEN" or "YoStarJP" or "YoStarKR" or "txwy"))
+                                throw new Exception("Invalid MuMu connection target");
+                            config = "MuMuEmulator12";
+                            Native.AsstSetConnectionExtras(config, JsonSerializer.Serialize(new {path, index, client_type=client, touch=true}));
+                            Check(Native.AsstSetInstanceOption(handle,6,client),"Cannot bind MaaCore client");
+                            Check(Native.AsstSetInstanceOption(handle,2,"MumuExtras"),"MuMu display input unavailable");
+                        }
+                        Check(Native.AsstConnect(handle,Str(req,"adbPath"),Str(req,"address"),config),"MaaCore connection failed");
                     } else throw new Exception("Unknown method");
                     if(method == "close") { Native.AsstDestroy(handle); handle=IntPtr.Zero; }
                     Emit(new { id, ok=true });

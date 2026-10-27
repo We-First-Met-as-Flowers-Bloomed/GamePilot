@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   quotaFor,
   dailySignClosePoint,
+  signInRewardClosePoint,
+  isMakaiHourPage,
   restoreBuffCancel,
   centralConfirmation,
   fullTrainingExtractionCancel,
@@ -52,6 +54,55 @@ const frame = (...entries: [string, number, number, number?][]): Frame => ({
     score,
   })),
 });
+describe("makai hour page (2026-10-16 live frame, lane-a)", () => {
+  it("recognizes the full-screen 逢魔之时 map so the courtyard can back out of it", () => {
+    // 实机帧：标题「逢魔之时」+「今日挑战次数：2/2」+ 底部「现世逢魔 0/4」。
+    // 卡点：courtyard() 原来没有这一页的退路 → 进来就出不去 →
+    // 整条阴阳师日常报「进入庭院检查每日签到失败」。
+    const makai = frame(
+      ["逢魔之时", 810, 20],
+      ["今日挑战次数：2/2", 820, 110],
+      ["现世逢魔0/4", 1670, 1030],
+    );
+    expect(isMakaiHourPage(makai)).toBe(true);
+    // 只有标题没有别的元素不认（避免命中探索页里同名的入口文字）。
+    expect(isMakaiHourPage(frame(["逢魔之时", 810, 20]))).toBe(false);
+    // 普通庭院不误判。
+    expect(isMakaiHourPage(frame(["庭院", 100, 40]))).toBe(false);
+  });
+});
+
+describe("sign-in reward popup (2026-10-16 live frame, lane-a)", () => {
+  it("recognizes it only with all three texts and closes via the fixed ✕", () => {
+    // 现场帧：领取成功 / 第839签 半吉 / 点击空白处关闭 —— 奖励**已经发放**，
+    // 但弹窗盖住庭院，courtyard() 认不出庭院 → 整条阴阳师日常报
+    // "进入庭院检查每日签到失败"（当天两个账号都被这一句挡住）。
+    const popup = frame(
+      ["第839签", 780, 200],
+      ["半吉", 980, 200],
+      ["累计奖励", 710, 740],
+      ["点击空白处关闭", 990, 1030],
+    );
+    expect(signInRewardClosePoint(popup)).toEqual([1320, 158]);
+    // 三处稳定元素缺任何一处都不认，避免把别的弹窗误判成签到奖励。
+    // （「领取成功」是淡出标题，实测稍后就没有了，所以**不**拿它当判据。）
+    expect(
+      signInRewardClosePoint(
+        frame(["第839签", 780, 200], ["点击空白处关闭", 990, 1030]),
+      ),
+    ).toBeUndefined();
+    expect(
+      signInRewardClosePoint(
+        frame(["累计奖励", 900, 700], ["点击空白处关闭", 990, 1030]),
+      ),
+    ).toBeUndefined();
+    // 普通庭院画面不会被误判。
+    expect(
+      signInRewardClosePoint(frame(["庭院", 100, 40], ["探索", 300, 200])),
+    ).toBeUndefined();
+  });
+});
+
 describe("Onmyoji observed daily policy", () => {
   it("recognizes unranked zero score only with both observed rank markers", () => {
     expect(
@@ -158,6 +209,22 @@ describe("Onmyoji observed daily policy", () => {
         ),
       ),
     ).toBe(true);
+    // 2026-10-14 实拍帧：OCR 把「周边屋」读成「周边」（0.999），其余两项正常读出。
+    expect(
+      isShopDistrict(
+        frame(
+          ["周边", 114, 1028],
+          ["魂玉屋", 1492, 1022],
+          ["礼包屋", 1700, 1026],
+        ),
+      ),
+    ).toBe(true);
+    // 三个导航锚点仍然缺一不可：少一项就必须判否，不能继续往商店深处点。
+    expect(isShopDistrict(frame(["礼包屋", 1700, 1026]))).toBe(false);
+    expect(
+      isShopDistrict(frame(["周边", 114, 1028], ["礼包屋", 1700, 1026])),
+    ).toBe(false);
+    expect(isShopDistrict(frame(["周边", 114, 1028]))).toBe(false);
     expect(
       isGiftHouse(
         frame(

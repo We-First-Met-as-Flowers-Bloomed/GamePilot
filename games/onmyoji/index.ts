@@ -32,7 +32,8 @@ export const onmyoji: Game = {
     {
       id: "guild-quest",
       title: "阴阳寮集体任务",
-      description: "刷新并提交一个 N 阶式神任务，领取我爱我寮奖励",
+      description:
+        "在寮境打开集体任务，领取当日已完成的奖励；需要提供 N 阶式神的「提交」卡会消耗式神，不自动提交，只在结果里说明",
       ready: true,
     },
     {
@@ -53,6 +54,12 @@ export const onmyoji: Game = {
       id: "realm-raid",
       title: "地域鬼王",
       description: "按声望核对今日记录，用当前阵容完成普通 1 级挑战",
+      ready: true,
+    },
+    {
+      id: "oboroguruma",
+      title: "胧车挂机",
+      description: "从探索进入胧车，核对御魂配置与八岐大蛇加成，设最大次数后出发",
       ready: true,
     },
     {

@@ -80,6 +80,55 @@ it("retains completed business steps and retries failed then remaining steps in 
     },
   ]);
 });
+it("excludes a native-finished shopping step with unknown wallet and continues only the pending award", () => {
+  const { parent, detail } = fixture();
+  const task = detail.games[0].record!;
+  task.steps.forEach((s, i) => {
+    s.status = i < 4 ? "succeeded" : i === 4 ? "failed" : "not-run";
+  });
+  const mall = task.steps[4];
+  mall.startedAt = parent.startedAt;
+  mall.finishedAt = parent.finishedAt;
+  mall.result = {
+    arknights: {
+      version: 1,
+      taskType: "Mall",
+      taskId: 1,
+      submission: "submitted",
+      completion: "native-confirmed",
+      observedAt: parent.finishedAt!,
+      statistics: {
+        version: 1,
+        mall: {
+          purchaseConfirmations: 0,
+          creditCollected: true,
+          shoppingErrorObserved: true,
+        },
+      },
+    },
+  };
+  const original = structuredClone({ parent, detail });
+  const preview = previewDailyContinuation(detail, parent, now);
+  expect(preview.steps.find((s) => s.skillId === "friends")?.status).toBe(
+    "excluded",
+  );
+  expect(preview.defaults).toEqual([
+    { gameId: "arknights", skillIds: ["award"] },
+  ]);
+  expect(preview.needsAcknowledgement).toBe(true);
+  expect(continuationPlans(preview, input(preview))).toEqual([
+    { gameId: "arknights", mode: "live", skillIds: ["login", "award"] },
+  ]);
+  expect(() =>
+    continuationPlans(preview, {
+      ...input(preview),
+      selections: [{ gameId: "arknights", skillIds: ["friends", "award"] }],
+    }),
+  ).toThrow();
+  expect({ parent, detail }).toEqual(original);
+  mall.result.arknights!.completion = "unknown";
+  expect(previewDailyContinuation(detail, parent, now).canContinue).toBe(false);
+});
 it("can deselect the failed step without altering future routines or replaying succeeded tasks", () => {
   const { parent, detail } = fixture();
   const before = structuredClone(detail);

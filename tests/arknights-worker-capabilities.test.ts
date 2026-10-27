@@ -18,7 +18,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("rejects an unsupported full plan before the worker runner can start login", async () => {
+it("accepts a supported upgraded daily plan before the worker runner starts login", async () => {
   const responses: { id?: string; result?: unknown; error?: string }[] = [];
   let receive!: (event: {
     data: { id: string; method: string; payload: unknown };
@@ -64,9 +64,9 @@ it("rejects an unsupported full plan before the worker runner can start login", 
   );
   expect(responses.find((r) => r.id === "start")).toEqual({
     id: "start",
-    error: expect.stringMatching(/限时签到/),
+    result: { runId: "unexpected" },
   });
-  expect(mocks.start).not.toHaveBeenCalled();
+  expect(mocks.start).toHaveBeenCalledOnce();
 
   receive({
     data: {
@@ -85,5 +85,5 @@ it("rejects an unsupported full plan before the worker runner can start login", 
   expect(responses.find((r) => r.id === "login")?.result).toEqual({
     runId: "unexpected",
   });
-  expect(mocks.start).toHaveBeenCalledOnce();
+  expect(mocks.start).toHaveBeenCalledTimes(2);
 });

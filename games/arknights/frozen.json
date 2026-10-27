@@ -1,0 +1,118 @@
+{
+  "version": 1,
+  "frozenAt": "2026-10-15",
+  "reason": "双账号冷启动并行跑完 6/6 后冻结：方舟日常实现不再改动，后续只开发阴阳师模块。",
+  "amendments": [
+    {
+      "at": "2026-10-15",
+      "files": [
+        "profile-login.ts"
+      ],
+      "reason": "点击好友入口后有时两次截图都稳定地停在主页，代码随即判「未进入自己的个人名片」，lane-a 当天整条方舟日常报废（游戏模式直跑复现）。改为只重读、不重新点击，最多四次；最终判定仍要求 page === profile，验收条件与安全边界不变。",
+      "evidence": "artifacts/game-mode/2026-10-15/lane-a-arknights.json（首次失败）＋ 随后两次 --only login 通过"
+    },
+    {
+      "at": "2026-10-22",
+      "files": [
+        "worker-adapter.ts"
+      ],
+      "reason": "MuMu 15 为多标签/多显示（桌面=0、阴阳师=2、方舟=3），`adb shell input` 默认只打 display 0，表现为「识别得到主页、点击却落在桌面」，登录打开个人名片失败。改为先解析前方是方舟的显示号，点击时带 `-d <显示号>`；解析不到则退回旧行为（不带 -d），由后续判据决定成败。",
+      "evidence": "artifacts/game-mode/2026-10-17/lane-a-arknights.json 与 lane-b-arknights.json 两条 lane 均 login/recruit/fight/infrastructure/friends/award = succeeded（6/6）；displayId 实现见 packages/runtime/device-inspection.ts:40,107。"
+    },
+    {
+      "at": "2026-10-24",
+      "files": [
+        "config.ts"
+      ],
+      "reason": "用户授权标准渠道批量复制；账号档案容量由20扩为100，以容纳64个独立渠道。只改配置容量，不改技能、消费参数或成功判据。",
+      "evidence": "tests/channel-template.test.ts、tests/channel-copy-ipc.test.ts；双号底层实机证据 artifacts/concurrent-maa/2026-10-24T05-18-55-503Z/report.md（不计App定时）。"
+    },
+    {
+      "at": "2026-10-25",
+      "files": [
+        "config.ts",
+        "capabilities.ts",
+        "worker-adapter.ts"
+      ],
+      "reason": "用户授权将 MAA 六项日常机制迁入 App；增加严格类型参数、白名单 GUI 导入、顺序作战队列和共享药石/掉落预算，固定内核契约升级 v6.20.1 并开放该版原生签到奖励。原生完成证据与账号/商店核验不放宽。",
+      "evidence": "tests/arknights-task-options.test.ts、arknights-maa-import.test.ts、arknights-fight-queue.test.ts、arknights-settings-draft.test.tsx；已只读解析 D:/maa 和 D:/maa - 副本 两份 config/gui.new.json。尚未以新版内核实机验证作战队列/补给，不能把旧六日常证据当新版验收。"
+    },
+    {
+      "at": "2026-10-26",
+      "files": [
+        "index.ts",
+        "worker-adapter.ts",
+        "config.ts",
+        "task-options.ts",
+        "fight-queue.ts",
+        "extended-options.ts",
+        "maa-gui-import.ts"
+      ],
+      "reason": "用户主动授权把 MAA 能力与高级参数迁入 App；补注册活动小游戏和需明确材料许可的干员养成，官方活动目录/资源授权必须先验证，默认六项日常保持不变。收尾修复队列部分消费回调缺失与计数器重置导致的预算重复授予，并把新增执行/导入边界纳入冻结清单。",
+      "evidence": "tests/arknights-extended-options.test.ts、arknights-worker-options.test.ts、arknights-fight-queue.test.ts、arknights-maa-import.test.ts；两份真实 GUI 配置只读导入验证 UID/client/LS-6 保留。高级任务、新版内核与补给队列尚未实机认证，未把旧版日常证据当新版通过。"
+    },
+    {
+      "at": "2026-10-26",
+      "files": [
+        "config.ts",
+        "worker-adapter.ts",
+        "copilot-options.ts",
+        "maa-gui-import.ts"
+      ],
+      "reason": "用户主动授权继续补全 MAA 机制；普通作业增加严格typed编队/助战/额外干员/列表导航/突袭/数据文件和时限。用药默认false且GUI导入不可提高许可，只有用户在App显式设置可开启，原生不支持逐瓶数量预算。AI编译与实际冻结另外共用零补给投影，不继承保存的typed补给/队列/养成或Copilot许可。",
+      "evidence": "tests/arknights-copilot-options.test.ts、arknights-copilot-integration.test.ts、arknights-copilot-options-ui.test.tsx、agent-execution-policy.test.ts；tests/engine-audit.test.ts解析闭合源码图并保持pending-real-device。原生5项只验证离线参数追加/桥接边界，未连接游戏；普通作业新版参数和补给仍待实机。"
+    },
+    {
+      "at": "2026-10-26",
+      "files": [
+        "config.ts",
+        "task-options.ts"
+      ],
+      "reason": "用户明确纠正预设队伍不应逐间巡检；默认基建仅保留总览预设轮换及贸易站无人机加速，会客室额外操作默认关闭，明确保存的高级配置仍有效。",
+      "evidence": "tests/arknights-task-options.test.ts 新增回归先红后绿；tests/arknights.test.ts 同步默认任务契约。未重复执行真实换班，旧实机证据不替代本次流程实测。"
+    },
+    {
+      "at": "2026-10-27",
+      "files": [
+        "credit-shopping.ts",
+        "worker-adapter.ts"
+      ],
+      "reason": "用户明确要求四渠道日常失败均修复；实机Mall确认4次购买后留下商品详情，旧余额核验只处理物资结果而失败。仅增加已确认商品详情的双帧导航返回一次，随后继续原有余额和主页核验；登录恢复也可关闭同一类遗留详情，不增加购买或消费。",
+      "evidence": "tests/fixtures/arknights/credit-shop-product-detail-20261027.json 为真实147/300、售价200商品详情OCR；arknights-credit-shopping.test.ts 正向/改价/确认弹窗/错误钱包区域/持续详情回归先失败再通过。原失败与购买记录保留，不重买。"
+    },
+    {
+      "at": "2026-10-27",
+      "files": [
+        "config.ts",
+        "task-options.ts"
+      ],
+      "reason": "用户明确纠正会客室收菜和日常遗漏：前次将不逐间换班误设为删除Reception。恢复默认Trade+Reception和三项会客室日常；仍mode20000预设换班，不恢复制造站或宿舍巡检。明确关闭的用户配置继续保留。",
+      "evidence": "arknights-task-options.test.ts默认范围、关闭无人机保留Reception先红后绿，显式关闭配置回归；arknights.test.ts同步默认任务契约。两账号真实补跑只登录和Reception基建，不重复公招、作战或购买。"
+    }
+  ],
+  "files": {
+    "config.ts": "40a42b108156b19e869cce97a133fe2760974cab9d3f413bbda591710068d19a",
+    "daily-plan.ts": "e5ad61eb34526ffb6faf2508d5e90a0095b4158940da0f87880dff0f2bb73052",
+    "execution.ts": "b1a501b564dbc7f6569cbbe941553790c7a29984c44fa6047a6926c02791f496",
+    "worker-adapter.ts": "af0db54ff311ee81fc7b462e3831456ecd9d3950f23f3dfafb87941766424f48",
+    "profile-login.ts": "c7aa904a06719063acdc92069cb2686a6bd322bccc03d6afadf2045bcae74d15",
+    "credit-shopping.ts": "5c9cd3779fb566e095e679389f4de9c6a5b1c610d40c9cd47c4e162a6502b7f5",
+    "inspection.ts": "2c8547067d18cd84bd444d00fe3e5a0f4d1c984de8ac4e57b54de4c3b9709519",
+    "recognition.ts": "dd573b62a8af8df3a566e19653341fbf503ea939318415a4b21c26952f3d29f4",
+    "navigation.ts": "251b8b1e668a11b7cb47adb279cd6da2ea5cf2abdc1c1ea5292a4a2cd3828c33",
+    "evidence.ts": "6cbf8367a40b1e2bce0c1e64a8ae9e1ffce3949793011bf032b1a1aa992994c5",
+    "result-policy.ts": "549bf4aef6e6cdebd78cb956ceee580bc12c8a11300e9f226a123efca3cd9306",
+    "capabilities.ts": "ef414efcd0f19bfc764f9540367ccbd484cb6a740b20dcb8d8d1b34584f8b631",
+    "startup-recovery.ts": "97595443e279f590e46d21d9c0424fab5b7129830859981f0db33d64a4e2ce5b",
+    "startup-reconciliation.ts": "9719b7343bcd1491debe0bb54d664c3b12787d29a8b47f328e669a1bcb96c026",
+    "inspect-device.ts": "1f16daf3d2e0a198119b7983230ecb7905f554bac6910972d1c3f8d626fea2e3",
+    "award-flags.ts": "3fca557f621ee256ea195a5f7189547f537bb4a6e6a1e4e50686dfeb06846c2a",
+    "lane-plugin.ts": "9ab78dc8232b15cc47cc56b2fbe6ef6117442d30655dfbfa1c89197db57721a1",
+    "index.ts": "f033882bb1d309b435c2fd4b1f67e6bbffe86c308f4b2ac7fac7ae4c182fd1f2",
+    "task-options.ts": "36e31737a857809a8f4874b5ab6308398737d94b674931fc8882f42762f3cefd",
+    "fight-queue.ts": "0e3a9aa8360638bdefce2158c21d4368cc516c1d050dd630ea1cb4d68402f71c",
+    "extended-options.ts": "1d7aada069f933faaea31bc586d38888066b2fd1b8f22613a122bf65b8e1985d",
+    "maa-gui-import.ts": "53c7939cdf3ae257531cf7d4a1a29d5a64d7e14b49a14976a9e998cb5ac07d3f",
+    "copilot-options.ts": "3012bebabc871d5cdecfb59ece220e21d400c00b646f02263dd197d646ef2684"
+  }
+}

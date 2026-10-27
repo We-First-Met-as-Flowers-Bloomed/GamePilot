@@ -6,8 +6,8 @@
         transport: stdio
         command: "D:/Node.js/node.exe"
         args:
-          - "<project-root>/scripts/agent/mcp.mjs"
-        cwd: "<project-root>"
+          - "D:/Projects/GamePilot/scripts/agent/mcp.mjs"
+        cwd: "D:/Projects/GamePilot"
         failOnStartupError: true
     - id: gamepilot-control-skills
       name: "@deepseek-ai/dsh-skill-filesystem"
@@ -15,4 +15,4 @@
         providerName: gamepilot-integration
         includeDefaultRoots: false
         customSkillDirs:
-          - "<project-root>/integrations/deepseek-harness/gamepilot-mcp/skills"
+          - "D:/Projects/GamePilot/integrations/deepseek-harness/gamepilot-mcp/skills"

@@ -8,6 +8,7 @@ import type { GameDevice, Frame, Rect, VisualHit } from "./device";
 import type { Device, EngineInfo } from "../protocol";
 import { ConnectionUnavailableError } from "../protocol/failure";
 import type { NativeOperation, NativeWait } from "../protocol/native-wait";
+import { resolveMumuConnection } from "./mumu-connection";
 
 /** Imported only by the isolated engine worker. */
 export class MaaEngine implements GameDevice {
@@ -21,6 +22,7 @@ export class MaaEngine implements GameDevice {
   private detected = new Map<string, maa.AdbDevice>();
   constructor(
     private reportNativeWait: (wait: NativeWait) => void = () => {},
+    private resolveMumu: typeof resolveMumuConnection = resolveMumuConnection,
   ) {}
   private async nativeWait<T>(
     operation: NativeOperation,
@@ -72,16 +74,36 @@ export class MaaEngine implements GameDevice {
     this.controller = undefined;
     this.address = undefined;
     const found = this.detected.get(`${device.adbPath}|${device.address}`);
+    const mumu = await this.resolveMumu(device);
+    let config = found?.[5] ?? "{}";
+    if (mumu) {
+      const existing = JSON.parse(config);
+      config = JSON.stringify({
+        ...existing,
+        extras: {
+          ...existing.extras,
+          mumu: {
+            enable: true,
+            path: mumu.path,
+            index: mumu.index,
+            lib: mumu.libraryPath,
+            app_package: mumu.appPackage,
+            app_cloned_index: 0,
+          },
+        },
+      });
+    }
     const controller = new maa.AdbController(
       device.adbPath,
       device.address,
-      found?.[3] ?? maa.AdbScreencapMethod.Default,
-      // MuMu cold-boot MaaTouch may acknowledge input without delivering it.
-      // Shell input follows Android's current display orientation reliably.
-      /mumu/i.test(device.name + device.adbPath)
-        ? maa.AdbInputMethod.AdbShell
+      mumu
+        ? maa.AdbScreencapMethod.EmulatorExtras
+        : (found?.[3] ?? maa.AdbScreencapMethod.Default),
+      // MuMu uses one native application display for both screenshots and input.
+      mumu
+        ? maa.AdbInputMethod.EmulatorExtras
         : (found?.[4] ?? maa.AdbInputMethod.Default),
-      found?.[5] ?? "{}",
+      config,
     );
     try {
       const job = await this.nativeWait("connection", () =>

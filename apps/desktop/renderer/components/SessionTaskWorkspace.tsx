@@ -2,6 +2,7 @@ import { Activity, ChevronDown, ListChecks } from "lucide-react";
 import type { GoalController } from "../hooks/useGoals";
 import { sessionTaskState } from "../chat-workspace-state";
 import { GoalCards } from "./GoalCards";
+import "../task-panel.css";
 
 export default function SessionTaskWorkspace({
   sessionId,
@@ -17,7 +18,8 @@ export default function SessionTaskWorkspace({
   focusGoalId?: string;
 }) {
   const state = sessionTaskState(sessionId, controller.state.goals);
-  if (!sessionId || (!state.entries.length && !controller.error)) return null;
+  if (!sessionId) return null;
+  const loading = controller.state.revision < 0 && !controller.error;
   const important = [...state.attention, ...state.active];
   if (!important.length && state.entries[0]) important.push(state.entries[0]);
   const history = state.entries.filter(
@@ -41,10 +43,47 @@ export default function SessionTaskWorkspace({
           本会话交办任务
         </span>
         <span role="status" aria-live="polite">
-          {state.label}
+          {controller.state.revision < 0
+            ? controller.available && !controller.error
+              ? "读取中"
+              : "尚未核实"
+            : state.label}
         </span>
       </header>
       {controller.error && <p role="alert">{controller.error}</p>}
+      {loading ? (
+        <p className="helper" role="status" data-task-loading="true">
+          {controller.available
+            ? "正在读取宿主任务记录…"
+            : "当前环境无法读取宿主任务记录，任务状态尚未核实。"}
+        </p>
+      ) : (
+        controller.state.revision >= 0 && (
+          <>
+            <div className="session-task-summary" aria-label="本会话任务汇总">
+              <span>
+                需要处理<strong>{state.attention.length}</strong>
+              </span>
+              <span>
+                运行中<strong>{state.active.length}</strong>
+              </span>
+              <span>
+                已核验完成<strong>{state.completed.length}</strong>
+              </span>
+            </div>
+            {!state.entries.length && !controller.error && (
+              <div className="task-panel-empty" data-task-empty="true">
+                <div
+                  className="task-panel-empty-illustration"
+                  aria-hidden="true"
+                />
+                <p>本会话还没有交办任务。</p>
+                <p className="helper">任务受理与结果以宿主记录为准。</p>
+              </div>
+            )}
+          </>
+        )
+      )}
       {!!important.length && (
         <GoalCards
           sessionId={sessionId}

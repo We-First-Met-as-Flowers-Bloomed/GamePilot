@@ -44,9 +44,9 @@ function example() {
   };
   return { test, result };
 }
-it("freezes 24 semantic cases plus six separate fault cases", () => {
-  expect(evaluationCases).toHaveLength(30);
-  expect(new Set(evaluationCases.map((c) => c.id)).size).toBe(30);
+it("freezes 24 semantic cases plus seven separate fault cases", () => {
+  expect(evaluationCases).toHaveLength(31);
+  expect(new Set(evaluationCases.map((c) => c.id)).size).toBe(31);
   expect(evaluationCases.filter((c) => c.mode === "live")).toHaveLength(24);
 });
 it("hashes optional fields consistently before and after JSON persistence", () => {

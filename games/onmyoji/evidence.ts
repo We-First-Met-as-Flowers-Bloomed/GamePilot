@@ -45,7 +45,9 @@ export const onmyojiEffectLabels: Readonly<
   "mail-claim": "邮箱待领取附件状态已核对",
   "free-daily-gift": "每日免费礼包领取效果已核对",
   "guild-submit": "一批集体任务提交进度已核对",
-  "guild-reward": "我爱我寮奖励领取状态已核对",
+  "guild-reward": "集体任务已领取的奖励状态已核对",
+  "oboroguruma-equip": "胧车挂机御魂配置确认状态已核对",
+  "oboroguruma-start": "胧车挂机出发状态已核对",
   "hana-claim": "花合战待领取奖励状态已核对",
 });
 /** Public facts use fixed labels; localized logs and stored free text cannot claim completion. */

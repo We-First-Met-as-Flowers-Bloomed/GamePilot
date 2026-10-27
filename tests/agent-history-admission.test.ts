@@ -94,8 +94,35 @@ function fixture() {
   return { request, task, target, context, makeTask };
 }
 
-it("admits independent business after a reliably terminal plain failure in another game without rewriting history", () => {
-  const s = fixture(),
+/**
+ * 2026-10-15（账号级 Actor · P1a）：等调度层改成「每个槽位 × 游戏一个请求」之后，
+ * 一个游戏的未处置记录**不该**再挡住另一个游戏——但只有在"请求自己冻结的计划
+ * 证明与本游戏无关 + 任务证据完整自洽"时才允许放行。
+ */
+it("does not let a proven-unrelated request block this game", () => {
+  const s = fixture();
+  s.request.snapshot = {
+    lane: s.request.snapshot.lane,
+    profile: s.request.snapshot.profile,
+    arknightsPlan: structuredClone(ark),
+  } as typeof s.request.snapshot;
+  s.context.tasks = [s.makeTask(structuredClone(ark))];
+  // 该请求只冻结了方舟计划：阴阳师准入不受它影响。
+  expect(() => guardHistory(s.target, s.context, now, yys)).not.toThrow();
+});
+
+it("still blocks the same request when its evidence is missing", () => {
+  const s = fixture();
+  s.request.snapshot = {
+    lane: s.request.snapshot.lane,
+    profile: s.request.snapshot.profile,
+    arknightsPlan: structuredClone(ark),
+  } as typeof s.request.snapshot;
+  s.context.tasks = []; // 没有任务证据 → 不构成"可证明无关"
+  expect(() => guardHistory(s.target, s.context, now, yys)).toThrow(/未处置/);
+});
+
+it("admits independent business after a reliably terminal plain failure in another game without rewriting history", () => {  const s = fixture(),
     before = structuredClone(s.context);
   expect(() => guardHistory(s.target, s.context, now)).not.toThrow();
   expect(s.context).toEqual(before);
@@ -277,6 +304,28 @@ it("preserves primary replay blocking and the existing settled-success exception
     guardSavedDailyHistory(s.target, s.context, evening, "secondary"),
   ).toThrow(/本游戏日/);
 });
+
+it.each([99, 0, null])(
+  "does not exempt unknown snapshot %s from secondary history admission",
+  (schemaVersion) => {
+    const s = fixture();
+    s.context.tasks = [];
+    s.request.status = "succeeded";
+    s.request.snapshot.schemaVersion = schemaVersion;
+    delete s.request.snapshot.onmyojiPlan;
+    s.request.snapshot.arknightsPlan = structuredClone(ark);
+    s.request.startedAt = new Date(2026, 9, 8, 10, 0).toISOString();
+    s.request.finishedAt = new Date(2026, 9, 8, 10, 1).toISOString();
+    expect(() =>
+      guardSavedDailyHistory(
+        s.target,
+        s.context,
+        new Date(2026, 9, 8, 21, 0),
+        "secondary",
+      ),
+    ).toThrow(/版本不受支持/);
+  },
+);
 
 it("keeps same-day confirmed effects blocked and never uses independent success to close older uncertainty", () => {
   const s = fixture();

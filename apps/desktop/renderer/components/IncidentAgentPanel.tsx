@@ -12,6 +12,8 @@ import {
 import type { FailureImageView } from "../../../../packages/protocol/failure-view";
 import { games } from "../../../../games/registry";
 import "./incident-agent.css";
+import { useDistinctValue } from "../hooks/useDistinctValue";
+import { watchSnapshot } from "../hooks/watchSnapshot";
 const stages = {
   queue: "排队",
   evidence: "读取证据",
@@ -128,50 +130,64 @@ export default function IncidentAgentPanel({
   onStarted?: (id: string) => void;
 }) {
   const [view, setView] = useState<IncidentAgentView>();
+  const unchanged = useDistinctValue();
   const [error, setError] = useState("");
+  const [readError, setReadError] = useState("");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [ack, setAck] = useState(false);
   const [images, setImages] = useState<Record<string, FailureImageView>>({});
   const mounted = useRef(true);
+  const scope = useRef(0);
   const inFlight = useRef(false);
   const s = view?.sessions.find((s) => s.requestId === requestId),
     active = s?.status === "running" || s?.status === "queued";
   useEffect(() => {
     mounted.current = true;
-    let pending = false;
-    const poll = async () => {
-      if (pending || !api?.incidentAgentSnapshot) return;
-      pending = true;
-      try {
-        const v = await api.incidentAgentSnapshot();
-        if (mounted.current) setView(v);
-      } catch {
-        if (mounted.current) setError("无法读取故障处理进度，请稍后重试。");
-      } finally {
-        pending = false;
-      }
-    };
-    void poll();
-    const timer = setInterval(() => void poll(), 1000);
+    const current = ++scope.current;
+    setView(undefined);
+    setError("");
+    setReadError("");
+    setImages({});
+    setBusy(false);
+    inFlight.current = false;
+    if (!api?.incidentAgentSnapshot) return;
+    const close = watchSnapshot({
+      read: () => api.incidentAgentSnapshot(),
+      subscribe: (refresh) => api.onIncidentAgentState?.(refresh) ?? (() => {}),
+      accept: (v) => {
+        if (scope.current === current) {
+          setReadError("");
+          if (unchanged([requestId, v])) setView(v);
+        }
+      },
+      error: () => {
+        if (scope.current === current)
+          setReadError("无法读取故障处理进度，请稍后重试。");
+      },
+    });
     return () => {
+      scope.current++;
       mounted.current = false;
-      clearInterval(timer);
+      close();
     };
   }, [api, requestId]);
-  async function act(fn: () => Promise<void>) {
+  async function act(fn: (current: () => boolean) => Promise<void>) {
     if (inFlight.current || disabled || !api) return;
     inFlight.current = true;
+    const epoch = scope.current;
     setBusy(true);
     setError("");
     try {
-      await fn();
+      await fn(() => mounted.current && scope.current === epoch);
     } catch (e) {
-      if (mounted.current)
+      if (mounted.current && scope.current === epoch)
         setError(e instanceof Error ? e.message : "处理未完成");
     } finally {
-      inFlight.current = false;
-      if (mounted.current) setBusy(false);
+      if (scope.current === epoch) {
+        inFlight.current = false;
+        if (mounted.current) setBusy(false);
+      }
     }
   }
   const unavailable = !api?.diagnoseFailure || disabled || busy;
@@ -193,9 +209,9 @@ export default function IncidentAgentPanel({
             className="button"
             disabled={unavailable}
             onClick={() =>
-              void act(async () => {
+              void act(async (current) => {
                 const v = await api!.cancelFailureDiagnosis(requestId);
-                if (mounted.current) setView(v);
+                if (current()) setView(v);
               })
             }
           >
@@ -208,10 +224,10 @@ export default function IncidentAgentPanel({
               className="button"
               disabled={unavailable}
               onClick={() =>
-                void act(async () => {
+                void act(async (current) => {
                   setAck(false);
                   const v = await api!.diagnoseFailure({ requestId });
-                  if (mounted.current) setView(v);
+                  if (current()) setView(v);
                 })
               }
             >
@@ -226,9 +242,9 @@ export default function IncidentAgentPanel({
           </button>
         )}
       </div>
-      {(error || view?.error || s?.error) && (
+      {(error || readError || view?.error || s?.error) && (
         <p role="alert" className="banner warning">
-          {error || view?.error || s?.error}
+          {error || readError || view?.error || s?.error}
         </p>
       )}
       {s && (
@@ -258,12 +274,12 @@ export default function IncidentAgentPanel({
                   className="button"
                   disabled={unavailable}
                   onClick={() =>
-                    void act(async () => {
+                    void act(async (current) => {
                       const image = await api!.readFailureImage({
                         requestId,
                         runId: screen.runId,
                       });
-                      if (mounted.current)
+                      if (current())
                         setImages((v) => ({ ...v, [screen.runId]: image }));
                     })
                   }
@@ -323,14 +339,14 @@ export default function IncidentAgentPanel({
                   className="button"
                   disabled={unavailable || !feedback.trim()}
                   onClick={() =>
-                    void act(async () => {
+                    void act(async (current) => {
                       if (active) await api!.cancelFailureDiagnosis(requestId);
                       setAck(false);
                       const v = await api!.diagnoseFailure({
                         requestId,
                         feedback,
                       });
-                      if (mounted.current) setView(v);
+                      if (current()) setView(v);
                     })
                   }
                 >
@@ -354,10 +370,10 @@ export default function IncidentAgentPanel({
                     className="button primary"
                     disabled={unavailable || !ack}
                     onClick={() =>
-                      void act(async () => {
+                      void act(async (current) => {
                         const v =
                           await api!.confirmFailureContinuation(requestId);
-                        if (mounted.current) setView(v);
+                        if (current()) setView(v);
                       })
                     }
                   >

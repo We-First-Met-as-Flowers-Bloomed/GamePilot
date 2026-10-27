@@ -33,11 +33,16 @@ function loginDirective(clause: string): boolean {
 }
 
 function dailyCompletionDirective(clause: string): boolean {
+  const body =
+    "(?:两个|2个|双|所有|全部)?(?:已启用的?|启用的?)?(?:明日方舟|阴阳师)?(?:账号|账户|号)?(?:今天的?|的)?(?:日常|每日任务)清完(?:吧|一下)?[！!\s]*$";
   return (
     !/(?:不|别|勿|没|未)/.test(clause) &&
-    /^(?:现在|立即|马上|先)?(?:请(?:你)?(?:帮我)?|帮我|替我|麻烦(?:你)?)把(?:两个|2个|双|所有|全部)?(?:已启用的?|启用的?)?(?:明日方舟|阴阳师)?(?:账号|账户|号)?(?:今天的?|的)?(?:日常|每日任务)清完(?:吧|一下)?[！!\s]*$/.test(
-      clause.trim(),
-    )
+    // 传统路径：祈使前缀 + 把；或新路径：至少一个指令前缀（先把日常清完）。
+    // 无前缀且无把的裸句（如过去式汇报"…清完了"）永不匹配。
+    new RegExp(
+      "^(?:(?:现在|立即|马上|先|再|然后|接着|请(?:你)?(?:帮我)?|帮我|替我|麻烦(?:你)?)把|(?:现在|立即|马上|先|再|然后|接着|请(?:你)?(?:帮我)?|帮我|替我|麻烦(?:你)?)+)" +
+        body,
+    ).test(clause.trim())
   );
 }
 
@@ -189,7 +194,7 @@ export function gameMessageAuthority(prompt: string): GameMessageAuthority {
         (clause) => loginDirective(clause) || dailyCompletionDirective(clause),
       );
   const subject =
-    /(?:日常|每日|任务|目标|计划|明日方舟|阴阳师|邮件|奖励|基建|公招|好友|商店|账号|账户)/.test(
+    /(?:日常|每日|任务|目标|计划|明日方舟|阴阳师|邮件|奖励|基建|公招|好友|商店|账号|账户|登录)/.test(
       affirmative,
     );
   // Referencing an existing configuration does not request a preference write.
@@ -234,7 +239,7 @@ export function gameMessageAuthority(prompt: string): GameMessageAuthority {
     !preferenceOnly &&
     !/(?:不|不要|无需)(?:停止|停下|停一下|取消)/.test(text) &&
     (shortStop ||
-      /(?:停止|停下|取消)(?:当前|这个|刚才|全部|所有)?(?:游戏)?(?:任务|目标|日常)|^(?:请(?:帮我)?|帮我|现在|立即|马上)?(?:停止|停下|停一下|取消).{0,24}(?:账号|任务|目标|日常)|^\/(?:stop|cancel)$/.test(
+      /(?:停止|停下|取消)(?:当前|这个|刚才|全部|所有)?(?:游戏)?(?:任务|目标|日常)|^(?:请(?:帮我)?|帮我|现在|立即|马上)?(?:停止|停下|停一下|取消)|^\/(?:stop|cancel)$/.test(
         affirmative,
       ));
   return {
@@ -246,7 +251,7 @@ export function gameMessageAuthority(prompt: string): GameMessageAuthority {
       medicine: 0,
       stone: 0,
       expiringMedicine: 0,
-      ...(/(?:不|不要|禁止|跳过|取消|关闭)(?:信用商店|信用购物|购物|购买)/.test(
+      ...(/(?:不|不要|禁止|跳过|取消|关闭)(?:信用商店|信用购物|购物|购买|(?:去)?买(?:信用)?商店|逛(?:信用)?商店)/.test(
         text,
       )
         ? { shopping: false as const }

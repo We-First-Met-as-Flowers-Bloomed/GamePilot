@@ -1,4 +1,73 @@
 {
+  "arknights-run-status": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "laneId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      },
+      "batchId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      }
+    },
+    "required": ["laneId", "batchId"]
+  },
+  "arknights-automation": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {},
+    "required": []
+  },
+  "arknights-tick": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {},
+    "required": []
+  },
+  "arknights-run-job": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "jobId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      },
+      "requestId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      }
+    },
+    "required": ["jobId", "requestId"]
+  },
+  "arknights-run-channel": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "laneId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      },
+      "requestId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      }
+    },
+    "required": ["laneId", "requestId"]
+  },
   "status": {
     "type": "object",
     "additionalProperties": false,
@@ -15,8 +84,15 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "afterSeq": { "type": "integer", "minimum": 0 },
-      "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+      "afterSeq": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100
+      },
       "requestId": {
         "type": "string",
         "minLength": 1,
@@ -36,7 +112,11 @@
         "maxLength": 200,
         "pattern": "^[A-Za-z0-9_:.-]+$"
       },
-      "text": { "type": "string", "minLength": 1, "maxLength": 12000 }
+      "text": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 12000
+      }
     },
     "required": ["sessionId", "text"]
   },
@@ -56,8 +136,13 @@
         "maxLength": 200,
         "pattern": "^[A-Za-z0-9_:.-]+$"
       },
-      "revision": { "type": "integer", "minimum": 0 },
-      "acknowledgePartial": { "type": "boolean" }
+      "revision": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "acknowledgePartial": {
+        "type": "boolean"
+      }
     },
     "required": ["sessionId", "reviewId", "revision"]
   },
@@ -115,9 +200,129 @@
         "maxLength": 200,
         "pattern": "^[A-Za-z0-9_:.-]+$"
       },
-      "revision": { "type": "integer", "minimum": 0 },
-      "acknowledgePartial": { "type": "boolean" }
+      "revision": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "acknowledgePartial": {
+        "type": "boolean"
+      }
     },
     "required": ["sessionId", "reviewId", "revision"]
+  },
+  "resolve-execution": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "requestId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "pattern": "^[A-Za-z0-9_:.-]+$"
+      },
+      "note": {
+        "type": "string",
+        "minLength": 4,
+        "maxLength": 400
+      }
+    },
+    "required": ["requestId", "note"]
+  },
+  "game-run-channel": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "laneId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      },
+      "requestId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      },
+      "gameId": {
+        "type": "string",
+        "pattern": "^(arknights|onmyoji)$"
+      }
+    },
+    "required": ["laneId", "requestId", "gameId"]
+  },
+  "game-run-status": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "laneId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      },
+      "batchId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      },
+      "gameId": {
+        "type": "string",
+        "pattern": "^(arknights|onmyoji)$"
+      }
+    },
+    "required": ["laneId", "batchId", "gameId"]
+  },
+  "game-automation": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "gameId": {
+        "type": "string",
+        "pattern": "^(arknights|onmyoji)$"
+      }
+    },
+    "required": ["gameId"]
+  },
+  "game-tick": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "gameId": {
+        "type": "string",
+        "pattern": "^(arknights|onmyoji)$"
+      }
+    },
+    "required": ["gameId"]
+  },
+  "game-run-job": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "jobId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      },
+      "requestId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+      },
+      "gameId": {
+        "type": "string",
+        "pattern": "^(arknights|onmyoji)$"
+      }
+    },
+    "required": ["jobId", "requestId", "gameId"]
+  },
+  "onmyoji-migrate-schedule": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {},
+    "required": []
   }
 }

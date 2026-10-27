@@ -10,7 +10,7 @@ import type { SkillResult } from "../packages/protocol";
 
 const config = {
   ...defaultArknightsConfig,
-  expectedUid: "864209759",
+  expectedUid: "123456789",
   clientType: "Bilibili" as const,
 };
 const result = (): SkillResult => ({
@@ -108,14 +108,14 @@ it("uses own profile identity despite the real truncated home UID, then verifies
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-09-30T12:30:00Z"));
   const inspect = read(
-    () => scene("home", ["864209", "864209"]),
+    () => scene("home", ["294821", "294821"]),
     () => {
       vi.setSystemTime(Date.now() + 1000);
       return scene("profile");
     },
     () => {
       vi.setSystemTime(Date.now() + 1000);
-      return scene("home", ["864209", undefined]);
+      return scene("home", ["294821", undefined]);
     },
   );
   const navigation = ports();
@@ -176,6 +176,69 @@ it("allows at most two complete new profile pairs for missing UID without mergin
   expect(inspect).toHaveBeenCalledTimes(4);
   expect(navigation.returnHome).toHaveBeenCalledTimes(1);
 });
+it("retries the post-navigation read when the transition spans two pages", async () => {
+  const navigation = ports();
+  // 点开名片后第一次读取跨在入场动画上：两帧分别落在主页与名片 → 证据不合格。
+  const unstable = ((): DeviceInspection => {
+    const arknights = compareArknightsFrames(
+      {
+        page: "home",
+        uid: undefined,
+        anchors: [],
+        friendsEntry: [610, 878] as [number, number],
+      },
+      { page: "profile", uid: config.expectedUid, anchors: [] },
+      config,
+    );
+    return {
+      observedAt: new Date().toISOString(),
+      address: "device",
+      foregroundPackage: arknightsPackage(config),
+      image: "image",
+      pageVerified: arknights.pageVerified,
+      accountVerified: arknights.accountVerified,
+      arknights,
+    };
+  })();
+  const inspect = read(
+    () => scene("home"),
+    () => unstable,
+    () => scene("profile"),
+    () => scene("home"),
+  );
+  const verified = await verifyArknightsProfileLogin(
+    result(),
+    config,
+    inspect,
+    new AbortController().signal,
+    navigation,
+  );
+  expect(verified.status).toBe("succeeded");
+  // 重读只补观测：名片只打开一次，绝不重新点击。
+  expect(navigation.openProfile).toHaveBeenCalledTimes(1);
+  expect(navigation.returnHome).toHaveBeenCalledTimes(1);
+  expect(inspect).toHaveBeenCalledTimes(4);
+});
+it("waits for the profile page instead of failing while the transition is still home", async () => {
+  const navigation = ports();
+  // 点开名片后先读到主页（转场还没到位），再读才变名片：只重读，不重新点击。
+  const inspect = read(
+    () => scene("home"),
+    () => scene("home"),
+    () => scene("profile"),
+    () => scene("home"),
+  );
+  const verified = await verifyArknightsProfileLogin(
+    result(),
+    config,
+    inspect,
+    new AbortController().signal,
+    navigation,
+  );
+  expect(verified.status).toBe("succeeded");
+  expect(navigation.openProfile).toHaveBeenCalledTimes(1);
+  expect(inspect).toHaveBeenCalledTimes(4);
+});
 it("stops after three incomplete profile pairs and never returns or merges partial reads", async () => {
   const navigation = ports();
   const inspect = read(
@@ -196,9 +259,9 @@ it("stops after three incomplete profile pairs and never returns or merges parti
   expect(navigation.returnHome).not.toHaveBeenCalled();
 });
 it.each([
-  ["864209", "864209"],
-  [config.expectedUid, "753108577"],
-  [undefined, "753108577"],
+  ["294821", "294821"],
+  [config.expectedUid, "987654321"],
+  [undefined, "987654321"],
 ])(
   "never navigates after foreign or truncated profile UID %s / %s",
   async (a, b) => {
@@ -233,7 +296,7 @@ const unsafe: [string, (s: DeviceInspection) => DeviceInspection][] = [
   ],
   [
     "changed binding",
-    (s) => ({ ...s, arknights: { ...s.arknights!, expectedUid: "753108577" } }),
+    (s) => ({ ...s, arknights: { ...s.arknights!, expectedUid: "987654321" } }),
   ],
   [
     "unknown overlay",

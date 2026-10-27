@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
   mkdtemp,
   mkdir,
@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import {
   StartupFaultError,
   startupFaultFrom,
@@ -20,6 +21,7 @@ import {
 
 const dirs: string[] = [];
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(
     dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
   );
@@ -31,6 +33,72 @@ async function setup() {
   await service.load();
   return { service, dir };
 }
+it("probes physical resource occupancy without reserving or consuming a request", async () => {
+  const { service } = await setup();
+  expect(service.canStart(["device-a"])).toBe(true);
+  const lease = await service.begin(request("busy-probe"));
+  expect(service.canStart(["device-a"])).toBe(false);
+  expect(service.canStart(["device-b"])).toBe(true);
+  expect(service.snapshot()).toHaveLength(1);
+  await lease.finish("succeeded", "probe complete");
+  expect(service.canStart(["device-a"])).toBe(true);
+});
+it("persists independently observed exit proof without changing the frozen fingerprint", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const { service, dir } = await setup();
+  const input = request("exit-proof");
+  input.snapshot.lane = {
+    instance: 0,
+    adbPath: "C:/adb.exe",
+    address: "127.0.0.1:16384",
+  } as typeof input.snapshot.lane;
+  const lease = await service.begin(input);
+  const original = service.get(input.id);
+  const firstObservedAt = new Date().toISOString();
+  vi.advanceTimersByTime(300);
+  const observedAt = new Date().toISOString();
+  const proof = {
+    version: 1 as const,
+    kind: "game-exit" as const,
+    gameId: "arknights",
+    method: "adb-process-check" as const,
+    device: { adbPath: "C:/adb.exe", address: "127.0.0.1:16384" },
+    packageName: "com.hypergryph.arknights",
+    firstObservedAt,
+    observedAt,
+    notRunning: [true, true] as [true, true],
+  };
+  await expect(
+    lease.observe!({ ...proof, device: { ...proof.device, address: "other" } }),
+  ).rejects.toThrow("退出证据");
+  await lease.observe!(proof);
+  proof.device.address = "mutated";
+  expect(service.get(input.id).fingerprint).toBe(original.fingerprint);
+  expect(service.get(input.id).observations?.[0].device.address).toBe(
+    "127.0.0.1:16384",
+  );
+  await expect(
+    lease.observe!({
+      ...proof,
+      device: { adbPath: "C:/adb.exe", address: "127.0.0.1:16384" },
+    }),
+  ).rejects.toThrow("重复");
+  await lease.finish("succeeded", "ok");
+  await expect(lease.observe!(proof)).rejects.toThrow("已结束");
+  const loaded = new ExecutionCoordinator(dir);
+  await loaded.load();
+  expect(loaded.error).toBeUndefined();
+  expect(loaded.get(input.id).observations).toEqual(
+    service.get(input.id).observations,
+  );
+  const saved = JSON.parse(
+    await readFile(
+      join(dir, createHash("sha256").update(input.id).digest("hex") + ".json"),
+      "utf8",
+    ),
+  );
+  expect(saved.observations).toHaveLength(1);
+});
 const request = (id: string, device = "device-a") => ({
   id,
   source: "daily" as const,
@@ -41,6 +109,139 @@ const request = (id: string, device = "device-a") => ({
     plans: ["login", "award"],
   },
 });
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value !== null && typeof value === "object")
+    return `{${Object.entries(value)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
+      .join(",")}}`;
+  return JSON.stringify(value);
+}
+async function writeReceipt(
+  dir: string,
+  id: string,
+  snapshot: Record<string, unknown>,
+  status = "succeeded",
+) {
+  const input = { ...request(id), snapshot };
+  const record = {
+    ...input,
+    version: 1,
+    fingerprint: createHash("sha256").update(canonical(input)).digest("hex"),
+    status,
+    startedAt: "2026-09-25T00:00:00Z",
+    message: "stored",
+  };
+  const file = join(
+    dir,
+    createHash("sha256").update(id).digest("hex") + ".json",
+  );
+  const raw = JSON.stringify(record);
+  await writeFile(file, raw);
+  return { record, file, raw };
+}
+
+it("stamps the current schema only on new requests without changing callers", async () => {
+  const { service } = await setup();
+  const input = request("schema-current");
+  const lease = await service.begin(input);
+  expect(service.get(input.id).snapshot.schemaVersion).toBe(1);
+  expect(input.snapshot).not.toHaveProperty("schemaVersion");
+  await lease.finish("succeeded", "done");
+});
+
+it.each([2, 0, "1", null, 1.5, undefined, Number.NaN])(
+  "rejects new snapshot schema %s before creating a receipt",
+  async (schemaVersion) => {
+    const { service, dir } = await setup();
+    await expect(
+      service.begin({
+        ...request("schema-rejected"),
+        snapshot: { schemaVersion },
+      }),
+    ).rejects.toThrow("快照");
+    expect(service.snapshot()).toEqual([]);
+    expect(await readdir(dir)).toEqual([]);
+  },
+);
+
+it("rejects snapshots whose JSON serialization changes the validated schema", async () => {
+  const { service, dir } = await setup();
+  await expect(
+    service.begin({
+      ...request("schema-serialization"),
+      snapshot: { schemaVersion: 1, toJSON: () => ({ schemaVersion: 2 }) },
+    }),
+  ).rejects.toThrow("快照");
+  expect(await readdir(dir)).toEqual([]);
+});
+
+it("loads legacy snapshots with their original raw data and fingerprint", async () => {
+  const { dir } = await setup();
+  const stored = await writeReceipt(dir, "legacy-receipt", {
+    ...request("x").snapshot,
+    future: { kept: true },
+  });
+  const service = new ExecutionCoordinator(dir);
+  await service.load();
+  service.assertHealthy();
+  expect(service.get("legacy-receipt")).toEqual(stored.record);
+  expect(await readFile(stored.file, "utf8")).toBe(stored.raw);
+  await expect(
+    service.begin({
+      ...request("legacy-receipt"),
+      snapshot: stored.record.snapshot,
+    }),
+  ).rejects.toThrow("已受理");
+});
+
+it("recovers an interrupted legacy snapshot without migrating its schema or fingerprint", async () => {
+  const { dir } = await setup();
+  const stored = await writeReceipt(
+    dir,
+    "legacy-running",
+    request("x").snapshot,
+    "running",
+  );
+  const service = new ExecutionCoordinator(dir);
+  await service.load();
+  expect(service.get("legacy-running")).toMatchObject({
+    snapshot: stored.record.snapshot,
+    fingerprint: stored.record.fingerprint,
+    status: "unknown",
+  });
+  expect(service.get("legacy-running").snapshot).not.toHaveProperty(
+    "schemaVersion",
+  );
+});
+
+it.each([2, "1", null])(
+  "retains schema %s receipts for review while blocking replay and writes",
+  async (schemaVersion) => {
+    const { dir } = await setup();
+    const stored = await writeReceipt(
+      dir,
+      "future-receipt",
+      { schemaVersion, future: { kept: true } },
+      "running",
+    );
+    const service = new ExecutionCoordinator(dir);
+    await service.load();
+    expect(service.get("future-receipt")).toEqual(stored.record);
+    expect(await readFile(stored.file, "utf8")).toBe(stored.raw);
+    expect(() => service.assertHealthy()).toThrow("快照");
+    await expect(service.begin(request("another"))).rejects.toThrow("快照");
+    await expect(
+      service.resolve("future-receipt", "reviewed"),
+    ).rejects.toThrow();
+    await expect(
+      service.inspect(["device-a"], async () => true),
+    ).rejects.toThrow("快照");
+    expect(await readFile(stored.file, "utf8")).toBe(stored.raw);
+  },
+);
 
 it("persists typed startup failure without changing the frozen request and rejects contradictory evidence", async () => {
   const { service, dir } = await setup();

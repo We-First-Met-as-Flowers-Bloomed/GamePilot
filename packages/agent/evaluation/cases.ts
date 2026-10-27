@@ -10,6 +10,7 @@ export const evaluationCases: EvaluationCase[] = [
     ["F04", "模型进程中途断开", "CODEX_EXITED，确认进程退出"],
     ["F05", "模型持续无输出", "TIMEOUT，有界等待，确认进程退出"],
     ["F06", "取消时清理失败", "SHUTDOWN_FAILED，关闭后续规划入口"],
+    ["F07", "并发构建包装器", "每次导入完整独立工件，不覆盖在途构建"],
   ].map(([id, condition, rubric]) => ({
     id,
     mode: "fault-injection" as const,

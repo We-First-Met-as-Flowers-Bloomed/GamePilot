@@ -206,6 +206,33 @@ it("describes both games using the same strict parameter, output, recovery and v
   expect(JSON.stringify(catalog.games)).toContain("每日和每周");
 });
 
+it("discloses advanced Arknights side effects without adding them to the AI daily allowlist", () => {
+  const catalog: any = make().call("list_capabilities");
+  const game = catalog.games.find((entry: any) => entry.id === "arknights");
+  const advanced = [
+    "sss-copilot",
+    "paradox-copilot",
+    "switch-theme",
+    "video-recognition",
+    "activity-game",
+    "operator-progress",
+  ];
+  for (const id of advanced) {
+    const skill = game.skills.find((entry: any) => entry.id === id);
+    expect(skill.draftSupported).toBe(false);
+    expect(game.inputSchema.properties.skillIds.items.enum).not.toContain(id);
+    expect(skill.effects).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id, boundTo: id })]),
+    );
+  }
+  const progress = game.skills.find(
+    (entry: any) => entry.id === "operator-progress",
+  );
+  expect(progress.effects[0]).toMatchObject({ kind: "consume" });
+  expect(progress.effects[0].label).toContain("用户允许消耗材料");
+  expect(progress.effects[0].label).toContain("无逐物品数量上限");
+});
+
 it("invalidates a former catalog and plan hash when builtin body or version changes", () => {
   const tools = make();
   const old = tools.call("list_capabilities");

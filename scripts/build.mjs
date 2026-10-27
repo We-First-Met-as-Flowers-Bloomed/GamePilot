@@ -1,7 +1,12 @@
 import { build as bundle } from "esbuild";
 import { build as renderer } from "vite";
 import { cp } from "node:fs/promises";
+import { sourceState, writeBuildProvenance } from "./build-provenance.mjs";
+const buildSourceStart = sourceState(".");
 await cp("games/onmyoji/resources", "dist/resources/onmyoji", {
+  recursive: true,
+});
+await cp("games/arknights/resources", "dist/resources/arknights", {
   recursive: true,
 });
 await import("./build-bridge.mjs");
@@ -22,3 +27,4 @@ for (const [entry, outfile] of [
     sourcemap: true,
   });
 }
+await writeBuildProvenance(".", buildSourceStart);

@@ -19,6 +19,7 @@ import {
   type TaskRecord,
 } from "../../../../packages/protocol/task-record";
 export type View =
+  | "slots"
   | "chat"
   | "daily"
   | "workspace"
@@ -41,7 +42,7 @@ const emptyArknights: ArknightsProfiles = {
 
 export function useDesktop() {
   const api = window.gamepilot;
-  const [view, setView] = useState<View>("chat");
+  const [view, setView] = useState<View>("slots");
   const [entryTarget, setEntryTarget] = useState<
     "planner" | "connection" | null
   >(null);
@@ -55,6 +56,8 @@ export function useDesktop() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceLanes, setDeviceLanes] = useState<DeviceLanes>(emptyLanes);
   const savedLanes = useRef<DeviceLanes>(emptyLanes);
+  // Initial hydration, event refreshes and action receipts share one ordering.
+  const snapshotVersion = useRef(0);
   const [mumuInstances, setMuMuInstances] = useState<MuMuInstance[]>([]);
   const [arknightsProfiles, setArknightsProfiles] =
     useState<ArknightsProfiles>(emptyArknights);
@@ -70,6 +73,9 @@ export function useDesktop() {
   const globalStatus = aggregateStatus(allEvents);
   const busyRef = useRef(false);
   const stoppingRef = useRef(false);
+  const stoppingLaneIds = useRef(new Set<string>());
+  const stoppingGameSlots = useRef(new Set<string>());
+  const stoppingAllLanes = useRef(false);
   const [hydrated, setHydrated] = useState(false);
   const [mode, setMode] = useState<"rehearsal" | "live">("rehearsal");
   const [busy, setBusy] = useState<string | null>(null);
@@ -109,6 +115,7 @@ export function useDesktop() {
     const unsubscribe = api.onEvent((event) => {
       if (loading) incoming.push(event);
       if (event.type === "engine") {
+        snapshotVersion.current++;
         setSnapshot((previous) => ({ ...previous, engine: null }));
         setShot("");
         setShotTime("");
@@ -118,13 +125,22 @@ export function useDesktop() {
       setTaskRecords((previous) => reduceTaskRecords(previous, event));
       setToday(new Date());
       if (
+        event.type === "status" &&
         event.status &&
-        ["succeeded", "failed", "cancelled"].includes(event.status)
+        [
+          "queued",
+          "running",
+          "stopping",
+          "succeeded",
+          "failed",
+          "cancelled",
+        ].includes(event.status)
       ) {
+        const revision = ++snapshotVersion.current;
         void api
           .snapshot()
           .then((value) => {
-            if (mounted)
+            if (mounted && revision === snapshotVersion.current)
               setSnapshot((previous) => ({
                 ...previous,
                 engine: value.engine,
@@ -134,18 +150,28 @@ export function useDesktop() {
               }));
           })
           .catch((reason) => {
-            if (mounted) setError(String(reason));
+            if (mounted && revision === snapshotVersion.current)
+              setError(String(reason));
           });
       }
     });
+    const initialVersion = ++snapshotVersion.current;
     Promise.all([api.snapshot(), api.deviceLanes(), api.arknights()])
       .then(([value, lanes, profiles]) => {
         if (!mounted) return;
-        setSnapshot(
-          incoming.some((event) => event.type === "engine")
+        setSnapshot((previous) => {
+          if (initialVersion !== snapshotVersion.current)
+            return {
+              ...value,
+              engine: previous.engine,
+              engineError: previous.engineError,
+              taskRecordError: previous.taskRecordError,
+              executions: previous.executions ?? value.executions,
+            };
+          return incoming.some((event) => event.type === "engine")
             ? { ...value, engine: null }
-            : value,
-        );
+            : value;
+        });
         setSettings(value.settings);
         setDeviceLanes(lanes);
         savedLanes.current = lanes;
@@ -208,12 +234,13 @@ export function useDesktop() {
   }
   async function refreshConnection() {
     if (!api) return;
+    const revision = ++snapshotVersion.current;
     try {
       const latest = await api.snapshot();
-      setSnapshot(latest);
+      if (revision === snapshotVersion.current) setSnapshot(latest);
     } catch {
       // The original device error is more useful than a second snapshot error.
-      clearConnection();
+      if (revision === snapshotVersion.current) clearConnection();
     }
   }
   function connect(device: Device) {
@@ -323,7 +350,7 @@ export function useDesktop() {
       const saved = await api.saveDeviceLanes(deviceLanes);
       setDeviceLanes(saved);
       savedLanes.current = saved;
-      setNotice("双设备配置已保存。 ");
+      setNotice("渠道配置已保存。 ");
     });
   }
   async function saveLanesBeforeRun() {
@@ -348,6 +375,37 @@ export function useDesktop() {
       }
     });
   }
+  function startGameSlot(input: {
+    laneId: string;
+    gameId: "arknights" | "onmyoji";
+  }) {
+    void perform(`slot-start:${input.laneId}:${input.gameId}`, async () => {
+      if (!api?.startGameSlot)
+        throw Error("当前桌面版本不支持单游戏槽位，请更新 App");
+      await saveLanesBeforeRun();
+      await api.startGameSlot(input);
+      await refreshConnection();
+    });
+  }
+  function stopGameSlot(input: {
+    laneId: string;
+    gameId: "arknights" | "onmyoji";
+  }) {
+    const key = `${input.laneId}:${input.gameId}`;
+    if (!api || stoppingGameSlots.current.has(key)) return;
+    stoppingGameSlots.current.add(key);
+    void (async () => {
+      try {
+        if (!api.stopGameSlot)
+          throw Error("当前桌面版本不支持单游戏停止，请更新 App");
+        await api.stopGameSlot(input);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        stoppingGameSlots.current.delete(key);
+      }
+    })();
+  }
   function startLanes() {
     void perform("lanes-start", async () => {
       if (api) {
@@ -362,14 +420,31 @@ export function useDesktop() {
     });
   }
   function stopLane(laneId: string) {
-    void perform(`lane-stop:${laneId}`, async () => {
-      if (api) await api.stopLane(laneId);
-    });
+    // Cancellation must bypass an unrelated save/start receipt still holding busy.
+    if (!api || stoppingLaneIds.current.has(laneId)) return;
+    stoppingLaneIds.current.add(laneId);
+    void (async () => {
+      try {
+        await api.stopLane(laneId);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        stoppingLaneIds.current.delete(laneId);
+      }
+    })();
   }
   function stopLanes() {
-    void perform("lanes-stop", async () => {
-      if (api) await api.stopLanes();
-    });
+    if (!api || stoppingAllLanes.current) return;
+    stoppingAllLanes.current = true;
+    void (async () => {
+      try {
+        await api.stopLanes();
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : String(reason));
+      } finally {
+        stoppingAllLanes.current = false;
+      }
+    })();
   }
   const laneStatuses = Object.fromEntries(
     deviceLanes.lanes.map((lane) => {
@@ -394,6 +469,7 @@ export function useDesktop() {
 
   return {
     api,
+    hydrated,
     view,
     setView,
     entryTarget,
@@ -420,6 +496,7 @@ export function useDesktop() {
     arknightsProfiles,
     saveArknights,
     allEvents,
+    today,
     taskRecords,
     scanned,
     events,
@@ -451,7 +528,24 @@ export function useDesktop() {
     saveSettings,
     scanMuMuInstances,
     saveDeviceLanes,
+    copyChannels: async (
+      input: import("../../../../packages/protocol/channel").ChannelCopyInput,
+    ) => {
+      if (!api?.copyChannels)
+        throw Error("当前桌面版本不支持渠道复制，请更新 App");
+      await perform("channel-copy", async () => {
+        const saved = await api.copyChannels!(input);
+        setDeviceLanes(saved.lanes);
+        savedLanes.current = saved.lanes;
+        setArknightsProfiles(saved.profiles);
+        setNotice(
+          `已创建 ${input.targets.length} 个暂停的独立渠道，请绑定各自账号后启用。`,
+        );
+      });
+    },
     startLane,
+    startGameSlot,
+    stopGameSlot,
     startLanes,
     stopLane,
     stopLanes,

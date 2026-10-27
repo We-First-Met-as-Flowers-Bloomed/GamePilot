@@ -1,11 +1,22 @@
+import {
+  createHistoryIndex,
+  frozenHistoryPlans,
+  readableHistorySnapshot,
+} from "../../../games/history-gate";
 import { createHash } from "node:crypto";
 import type { DeviceLane, DeviceLanes, Plan } from "../../../packages/protocol";
 import type { PlannerViewState } from "../../../packages/protocol/agent-planner";
 import type { ExecutionRecord } from "../../../packages/protocol/execution";
 import type { TaskRecord } from "../../../packages/protocol/task-record";
+import {
+  requestMayAffectChannel,
+  taskMayAffectChannel,
+} from "../../../packages/protocol/account-channel";
 import type { ArknightsProfiles } from "../../../games/arknights/config";
 import type { ConfiguredSnapshot } from "../../../packages/agent/configured";
 import type { LaneExecutionSnapshot } from "./lane-snapshot";
+import { freezeLaneDevice } from "./lane-device";
+import { agentLaneAlias } from "../../../packages/protocol/lane-alias";
 import { canonical } from "../../../packages/acceptance/files";
 import {
   AgentToolError,
@@ -200,7 +211,7 @@ export function prepareAgentExecution(
     const profile = context.profiles.profiles[profileIndex];
     if (
       !alias ||
-      alias.id !== `lane-${String.fromCharCode(97 + index)}` ||
+      alias.id !== agentLaneAlias(index) ||
       !lane ||
       alias.instance !== lane.instance ||
       entry.instance !== lane.instance ||
@@ -258,6 +269,10 @@ export function prepareAgentExecution(
         });
       }
     }
+    frozen.lane = freezeLaneDevice(
+      frozen.lane,
+      entry.games.map((game) => game.plan.gameId),
+    );
     return frozen;
   });
   const resources = frozen.map((s) =>
@@ -274,24 +289,66 @@ export function prepareAgentExecution(
   return frozen;
 }
 
-function requestMatches(request: ExecutionRecord, lane: DeviceLane): boolean {
-  const resource = mumuResource(lane.managerPath, lane.instance);
-  const original = request.snapshot.lane as Partial<DeviceLane> | undefined;
-  const originalResource =
-    typeof original?.managerPath === "string" &&
-    typeof original.instance === "number"
-      ? mumuResource(original.managerPath, original.instance)
-      : undefined;
-  return (
-    request.laneId === lane.id ||
-    original?.id === lane.id ||
-    originalResource === resource ||
-    originalResource === "*" ||
-    request.resources.some((r) => r === "*" || r === resource)
+/**
+ * 请求自身的任务证据是否**完整且自洽**——只有可信的证据才允许用来放行。
+ *
+ * `agent-history-admission.test.ts` 的"disjoint 但证据不可信"用例要求：任务缺失、
+ * 任务与请求对不上、同请求重复任务、任务状态与步骤自相矛盾，都必须继续拦住所有游戏。
+ */
+function requestEvidenceIsCoherent(
+  request: ExecutionRecord,
+  linked: readonly TaskRecord[],
+): boolean {
+  if (!linked.length) return false;
+  if (!linked.every((task) => taskMatchesRequest(task, request))) return false;
+  if (new Set(linked.map((task) => task.gameId)).size !== linked.length)
+    return false;
+  return linked.every((task) =>
+    task.status === "succeeded"
+      ? task.steps.every(
+          (step) => step.status === "succeeded" || step.status === "skipped",
+        )
+      : task.steps.every(
+          (step) => step.status !== "running" && step.status !== "pending",
+        ),
   );
 }
 
-function taskMatchesRequest(
+/**
+ * 2026-10-15（账号级 Actor · P1a）：这条请求能否**被证明与本游戏无关**。
+ *
+ * 两个条件同时成立才算证明：
+ *  1. 请求自己快照里**冻结的计划**可读，且没有任何一个与本计划重叠
+ *     （`agentHistoryOverlaps` 同样用在同日判定里）；
+ *  2. 该请求的任务证据**完整且自洽**（见上）。
+ *
+ * 这是结构性证据，不靠任务反推游戏归属，所以用来放行是安全的；任何一条读不到、
+ * 对不上或自相矛盾，都退回"继续拦截"。今天一个槽位的请求同时冻结两个游戏，
+ * 因此本函数返回 false，行为与之前完全一致；等 P1a'（每个「槽位 × 游戏」一个请求）
+ * 落地后，它才会真正放行。
+ */
+function requestProvablyOtherGames(
+  request: ExecutionRecord,
+  linked: readonly TaskRecord[],
+  plan: Plan,
+): boolean {
+  const frozen = frozenHistoryPlans(request);
+  if (!frozen?.length) return false;
+  if (frozen.some((entry) => agentHistoryOverlaps(plan, entry))) return false;
+  return requestEvidenceIsCoherent(request, linked);
+}
+
+/**
+ * 2026-10-15（账号级 Actor · P1 调研结论）：**不要**用"任务里的 gameId"来放宽未处置闸门。
+ *
+ * 试过一版：请求是设备级的、任务才带 gameId，看起来"只关联别的游戏就可以放行"，
+ * 但 `agent-history-admission.test.ts` 里有一组"disjoint 但证据不可信"的用例
+ * （计划丢失 / 计划非法 / 任务状态自相矛盾 / 重复任务）正是要求这种情况下**继续拦**。
+ * 结论：归属判断必须用结构性证据（冻结的计划 + 自洽的任务证据），不要从任务反推。
+ */
+const requestMatches = requestMayAffectChannel;
+
+export function taskMatchesRequest(
   task: TaskRecord,
   request: ExecutionRecord,
 ): boolean {
@@ -336,10 +393,14 @@ function exactHistoryDevice(
 
 export function guardHistory(
   target: LaneExecutionSnapshot,
-  context: AgentExecutionContext,
+  context: Pick<
+    AgentExecutionContext,
+    "requests" | "tasks" | "startupFacts" | "startupInspection"
+  >,
   now: Date,
   selectedPlan?: Plan,
 ) {
+  const history = createHistoryIndex(context.requests, context.tasks);
   const plan = selectedPlan ?? target.arknightsPlan!;
   const covered = completedContinuationRequestIds(
     context.requests,
@@ -406,9 +467,16 @@ export function guardHistory(
     ["unknown", "failed", "cancelled"].includes(status);
   for (const request of context.requests) {
     if (!requestMatches(request, target.lane)) continue;
+    if (!readableHistorySnapshot(request))
+      throw new AgentToolError(
+        "UNRESOLVED_EXECUTION",
+        "目标设备执行快照版本不受支持，原记录须先核对",
+      );
+    const linked = history.tasks(request.id);
     if (
       active(request.status) ||
       (uncertain(request.status) &&
+        !requestProvablyOtherGames(request, linked, plan) &&
         !inspecting &&
         !reconciled.has(request.id) &&
         !request.resolution &&
@@ -417,7 +485,6 @@ export function guardHistory(
     )
       unresolved();
     if (!nonLogin) continue;
-    const linked = context.tasks.filter((t) => t.executionId === request.id);
     if (
       agentHistoryTouchesDay(
         request.startedAt,
@@ -426,11 +493,7 @@ export function guardHistory(
         plan.gameId,
       )
     ) {
-      const plans = [
-        request.snapshot.plan,
-        request.snapshot.arknightsPlan,
-        request.snapshot.onmyojiPlan,
-      ].filter((p) => p !== undefined);
+      const plans = frozenHistoryPlans(request) ?? [];
       if (
         !unstarted.has(request.id) &&
         (!plans.length || plans.some((p) => agentHistoryOverlaps(plan, p)))
@@ -464,11 +527,9 @@ export function guardHistory(
   }
   // Orphan tasks cannot be excluded based on a renamed lane or missing manager path.
   for (const task of context.tasks) {
-    const associated = context.requests.find((r) => r.id === task.executionId);
-    const physicalMatch =
-      task.laneId === target.lane.id ||
-      task.instance === target.lane.instance ||
-      (task.laneId === undefined && task.instance === undefined);
+    const owners = task.executionId ? history.requests(task.executionId) : [];
+    const associated = owners.length === 1 ? owners[0] : undefined;
+    const physicalMatch = taskMayAffectChannel(task, target.lane, associated);
     if (
       !physicalMatch &&
       !(associated && requestMatches(associated, target.lane))
@@ -533,6 +594,7 @@ export function guardSavedDailyHistory(
             ...context,
             requests: context.requests.filter(
               (r) =>
+                !readableHistorySnapshot(r) ||
                 (r.status !== "succeeded" && !covered.has(r.id)) ||
                 new Date(r.finishedAt ?? r.startedAt).getHours() >= 20 ||
                 agentExecutionGameDay(new Date(r.startedAt)) !==
@@ -540,6 +602,9 @@ export function guardSavedDailyHistory(
             ),
             tasks: context.tasks.filter(
               (t) =>
+                context.requests.some(
+                  (r) => r.id === t.executionId && !readableHistorySnapshot(r),
+                ) ||
                 (t.status !== "succeeded" &&
                   !covered.has(t.executionId ?? "")) ||
                 new Date(t.finishedAt ?? t.updatedAt).getHours() >= 20 ||

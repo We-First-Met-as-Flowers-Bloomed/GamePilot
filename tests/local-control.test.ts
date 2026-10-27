@@ -123,6 +123,37 @@ it("authenticates and validates the fixed method schema before entering host han
   ).toMatchObject({ ok: false, error: { code: "INVALID_PARAMS" } });
   expect(status).not.toHaveBeenCalled();
 });
+it("accepts an explicit record disposition only with a written reason", async () => {
+  // 2026-10-15（P5a）：处置是**显式**动作——必须带依据；参数不合规时不得进入宿主处理器。
+  const resolveExecution = vi.fn((params: Record<string, unknown>) => ({
+    requestId: params.requestId,
+  }));
+  const server = await host({ "resolve-execution": resolveExecution });
+  expect(
+    await request(server.connectionFile, {
+      id: "ok",
+      method: "resolve-execution",
+      params: { requestId: "req-1:lane-a", note: "现场帧确认未生效，判定为未执行" },
+    }),
+  ).toMatchObject({ ok: true });
+  expect(resolveExecution).toHaveBeenCalledTimes(1);
+  // 没有依据 / 依据太短 / 多余字段 / 非法编号：全部在进入处理器之前拒绝。
+  for (const params of [
+    { requestId: "req-2:lane-a" },
+    { requestId: "req-2:lane-a", note: "ok" },
+    { requestId: "req-2:lane-a", note: "现场核对后判定未生效", extra: 1 },
+    { requestId: "req 2", note: "现场核对后判定未生效" },
+  ]) {
+    expect(
+      await request(server.connectionFile, {
+        id: "bad",
+        method: "resolve-execution",
+        params,
+      }),
+    ).toMatchObject({ ok: false, error: { code: "INVALID_PARAMS" } });
+  }
+  expect(resolveExecution).toHaveBeenCalledTimes(1);
+});
 it("deduplicates a submitted confirmation across reconnect and rejects changed request IDs", async () => {
   const confirm = vi.fn(() => ({
     status: "submitted",

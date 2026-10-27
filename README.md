@@ -1,52 +1,55 @@
 # GamePilot
 
-GamePilot 是一个开发中的游戏自动化桌面项目：用自然语言交办任务，由宿主核验账号、范围和资源限制，再交给游戏执行器；结果以实际任务账本为准。
+**0.18.8 · Windows x64 · AGPL-3.0-only · 公开源码**
 
-**0.15.13 · Windows x64 · 纯源码首发 · AGPL-3.0-only**
+GamePilot 是面向多游戏、多账号的日常自动化桌面应用。每个游戏账号绑定独立渠道和模拟器，任务由 App 内部调度与执行；AI 计划也要经过账号、步骤、资源预算和设备所有权校验。
 
-本仓库公开 Electron / React / TypeScript 应用、游戏适配、独立执行器桥接和测试。首发不附安装包、原生运行时、游戏截图、识别模板、账号配置或运行记录。第三方组件保持原许可证，见 [NOTICE](NOTICE.md) 和 [第三方说明](docs/third-party-notices.md)。
+## 本次更新
 
-## 当前能做什么
-
-- **明日方舟**：通过固定版本 MaaCore 和独立 .NET 桥接进程接入登录、作战、基建、公招、好友和领奖等任务；实际开放范围由技能与参数校验决定。
-- **阴阳师**：通过 MaaFramework 接入登录态检查、签到、邮件、礼包、花合战及部分日常流程。游戏视觉模板未随源码发布，相关实机功能需要自行准备适配资源。
-- **聊天与任务**：官方 DeepSeek Harness SDK 负责模型工具循环；宿主负责当前消息授权、计划编译、持久目标、设备互斥、结果核验和允许范围内的续跑。
-- **桌面工作区**：账号与设备配置、保存日常、定时运行、任务详情、故障证据和聊天结果展示。
-
-开发过程中已验证过受限单条玩家命令的完整链路，包括阴阳师登录、邮件领取及无可领花合战奖励时跳过。这只说明特定客户端场景曾通过；不代表所有账号、皮肤、游戏版本或完整日常均可无人值守运行。当前不承诺全自治、任意故障恢复或持续稳定性。未知提交结果不会被当成可安全重跑。
+- 四个独立账号工作台，复杂页面按需加载。
+- 明日方舟与阴阳师共用 App 持久调度，可按账号编辑时间、星期和执行步骤。
+- 同一模拟器上的任务等待设备释放，独立设备可并行；未知结果保留原回执，不自动重放消费步骤。
+- 方舟使用固定 MaaCore **v6.20.1** 与独立 .NET 桥接，接入日常参数、活动关卡、作业和高级任务。技能注册不等于全部玩法通过实机验收。
+- 阴阳师旧脚本只转交 App，外部不再创建引擎或控制模拟器生命周期。
+- 会客室结果区分入口识别、动作观测和实际结果；无法核验的项目保持未知。
 
 ## 从源码开始
 
-先阅读 [开发与准备指南](docs/getting-started.md)。基础环境是 Windows x64、Node.js 22.12+ 和 .NET 8 SDK；原生执行另需 Visual C++ v14 x64 运行库。
+固定前提：Windows x64、Node **22.18.0**、npm **10.9.3**、.NET SDK **8.0.400**。原生执行需要 Visual C++ v14 x64 运行库。
 
 ```powershell
 git clone https://github.com/We-First-Met-as-Flowers-Bloomed/GamePilot.git
 cd GamePilot
 npm ci
 npm run setup:electron
+npm run setup:maacore
+npm run setup:ocr
 npm run typecheck
+npm test -- --maxWorkers=4
 npm run build
 ```
 
-以上是当前脚本入口，不是全新机器的完整游戏安装承诺。构建不自动补齐 MaaCore、OCR、DSH 或游戏模板；其中 DSH 仍要求与仓库指纹一致的独立 Node 运行时，尚无本项目提供的一键公共获取方案。缺少依赖时，相关测试会跳过或功能拒绝运行。首次源码导出的全新环境验收仍需单独完成。
+只看界面可运行 `npm run preview`；浏览器没有桌面桥接和设备控制。普通 `npm start` 会读取本机已有设置，已启用的内部计划可能自动执行。
 
-只看界面可运行 `npm run preview`，浏览器预览没有桌面桥接或设备控制。完整检查使用 `npm run verify`；推荐的隔离界面检查是 `npm run smoke:goals`。普通 `npm start` / `npm run dev` 会打开真实应用，已有用户配置可能启用调度，不属于安全演练。各 smoke 的数据和执行边界见 [指南](docs/getting-started.md#验证边界)。
+本仓库沿用纯源码发布范围，包含应用、游戏适配、桥接、测试和固定依赖的准备脚本；不上传本机配置、执行记录、截图、游戏识别模板、私有 DSH 工件或便携二进制。阴阳师实机功能需自行准备兼容模板；AI 需独立配置匹配的 DSH 运行时与模型。
+
+本次公开源码已通过本地类型、构建及回归验证；未提供的私有 DSH 检查明确跳过，不冒充真实游戏验证。当前发布凭据不包含 workflow 权限，因此本次未启用 GitHub Actions。详情见[开发准备](docs/getting-started.md)、[任务与聊天](docs/daily-app-guide.md)、[本机接口](docs/local-control.md)、[MAA 能力范围](docs/maa-capability-migration.md)。
 
 ## 项目结构
 
 | 目录 | 职责 |
 | --- | --- |
-| `apps/desktop` | Electron 主进程、受限 preload、React 界面 |
-| `packages/agent` | 模型适配、工具循环与规划协议 |
-| `packages/runtime` | 隔离 worker、原生引擎与退出控制 |
-| `packages/maa-bridge` | MaaCore 的 C# / .NET 进程桥 |
-| `packages/protocol` | 计划、目标、账本与 IPC 类型 |
-| `games` | 游戏能力、执行适配与结果判定 |
-| `integrations/deepseek-harness` | 固定 SDK 运行时适配及可选 MCP 接入 |
-| `tests` / `scripts` | 回归测试、开发与构建工具 |
+| `apps/desktop` | Electron 宿主、受限 preload、React 界面 |
+| `games` | 游戏技能、配置、执行适配及结果判据 |
+| `packages/protocol` | 计划、账本、IPC 与校验 |
+| `packages/runtime` | 隔离 worker、引擎和退出控制 |
+| `packages/maa-bridge` | MaaCore C#/.NET 桥接 |
+| `packages/agent` | AI 规划与工具接口 |
+| `integrations/deepseek-harness` | 固定 SDK 运行时适配 |
+| `tests` / `scripts` | 回归验证及构建工具 |
 
-操作方式见 [每日与聊天使用指南](docs/daily-app-guide.md)，设计见 [架构](docs/architecture.md)。贡献前阅读 [CONTRIBUTING](CONTRIBUTING.md)，安全问题见 [SECURITY](SECURITY.md)。
+`dist`、`artifacts` 和依赖缓存由 Git 忽略。运行数据保存在用户自己的 `.gamepilot` 目录。
 
-## 许可与项目关系
+## 许可
 
-本项目原创代码采用 [GNU AGPL v3，仅此版本](LICENSE)。这一声明不重新许可第三方代码、模型、游戏素材或商标。GamePilot 不隶属于游戏发行商、模拟器厂商、Maa 项目或 DeepSeek；使用这些名称仅用于说明兼容与依赖关系。
+原创代码沿用 [AGPL-3.0-only](LICENSE)。第三方保留各自许可，见 [NOTICE](NOTICE.md) 与[第三方说明](docs/third-party-notices.md)。GamePilot 与游戏、模拟器、Maa 或 DeepSeek 的发行方无隶属关系。

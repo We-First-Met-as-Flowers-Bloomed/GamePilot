@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   RefreshCw,
   Monitor,
@@ -8,9 +8,18 @@ import {
   Save,
   Plus,
   Trash2,
+  Layers3,
+  Settings2,
+  ChevronDown,
 } from "lucide-react";
 import type { DesktopController } from "../hooks/useDesktop";
 import DevicePreview from "../components/DevicePreview";
+import OnmyojiIdentitySettings from "../components/OnmyojiIdentitySettings";
+import { laneDraftFromChannel, laneDraftsFromChannels } from "../channel-lane";
+import ChannelCopy from "../components/ChannelCopy";
+import { MAX_DEVICE_LANES } from "../../../../packages/protocol";
+import { channelGame } from "../../../../packages/protocol/account-channel";
+import "../channels.css";
 export default function Devices({ desktop }: { desktop: DesktopController }) {
   const {
     discover,
@@ -28,14 +37,57 @@ export default function Devices({ desktop }: { desktop: DesktopController }) {
     mumuInstances,
     scanMuMuInstances,
     saveDeviceLanes,
-    startLane,
+    startGameSlot,
     startLanes,
     stopLane,
     stopLanes,
     laneStatuses,
     arknightsProfiles,
   } = desktop;
+  const [newGame, setNewGame] = useState<"arknights" | "onmyoji">("arknights");
+  const [discoveryGames, setDiscoveryGames] = useState<
+    Record<number, "arknights" | "onmyoji" | "">
+  >({});
   const advanced = useRef<HTMLDetailsElement>(null);
+  const autoProbed = useRef(false);
+  // channel-auto-scan：进入设备页时自动准备渠道列表，用户不必知道模拟器位置与端口。
+  useEffect(() => {
+    if (autoProbed.current || !api || desktop.hydrated === false) return;
+    autoProbed.current = true;
+    const managerPath = deviceLanes.lanes[0]?.managerPath ?? "";
+    if (managerPath) {
+      if (mumuInstances.length === 0) scanMuMuInstances(managerPath);
+      return;
+    }
+    void (async () => {
+      try {
+        const found = await api.detectMuMu();
+        const installation = found?.[0];
+        if (!installation) return;
+        setDeviceLanes((previous) => ({
+          ...previous,
+          lanes: previous.lanes.map((lane) =>
+            lane.managerPath
+              ? lane
+              : {
+                  ...lane,
+                  managerPath: installation.managerPath,
+                },
+          ),
+        }));
+        scanMuMuInstances(installation.managerPath);
+      } catch {
+        // 检测失败时保持静默：用户仍可点「自动检测模拟器」手动触发。
+      }
+    })();
+  }, [
+    api,
+    deviceLanes,
+    desktop.hydrated,
+    mumuInstances.length,
+    scanMuMuInstances,
+    setDeviceLanes,
+  ]);
   const adbInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (desktop.entryTarget !== "connection" || !advanced.current) return;
@@ -49,6 +101,10 @@ export default function Devices({ desktop }: { desktop: DesktopController }) {
   const laneActive = (id: string) =>
     ["queued", "running", "stopping"].includes(laneStatuses[id] ?? "");
   const anyLaneActive = deviceLanes.lanes.some((lane) => laneActive(lane.id));
+  const enabledCount = deviceLanes.lanes.filter((lane) => lane.enabled).length;
+  const activeCount = deviceLanes.lanes.filter((lane) =>
+    laneActive(lane.id),
+  ).length;
   const updateLane = (
     id: string,
     change: Partial<(typeof deviceLanes.lanes)[number]>,
@@ -60,28 +116,77 @@ export default function Devices({ desktop }: { desktop: DesktopController }) {
       ),
     });
   return (
-    <div className="page">
-      <div className="eyebrow">DEVICE CONNECTION</div>
-      <h1>连接你的游戏设备</h1>
-      <p className="intro">
-        为每日计划绑定模拟器与账号；单设备工具的 ADB 配置在下方高级连接中管理。
-      </p>
+    <div className="page channels-page">
+      <header className="channels-heading">
+        <div>
+          <div className="eyebrow">DEVICE CHANNELS</div>
+          <h1>账号与渠道</h1>
+          <p className="intro">
+            每个渠道绑定一个游戏账号和一台模拟器，账号、任务与运行记录独立保存。
+          </p>
+        </div>
+        <span
+          className={`channels-activity ${anyLaneActive ? "is-active" : ""}`}
+        >
+          <i aria-hidden="true" />
+          {anyLaneActive
+            ? `${activeCount} 个账号渠道处理中`
+            : "当前没有处理中的账号渠道"}
+        </span>
+      </header>
+      <dl className="channels-overview" aria-label="账号渠道概览">
+        <div>
+          <dt>账号渠道</dt>
+          <dd>
+            {deviceLanes.lanes.length}
+            <span>个独立配置</span>
+          </dd>
+        </div>
+        <div>
+          <dt>已启用</dt>
+          <dd>
+            {enabledCount}
+            <span>个参与运行</span>
+          </dd>
+        </div>
+        <div>
+          <dt>活动渠道</dt>
+          <dd>
+            {activeCount}
+            <span>排队、运行或停止中</span>
+          </dd>
+        </div>
+      </dl>
+
       <section className="surface lane-section">
         <div className="section-label">
           <div>
-            <h3>双账号流水线</h3>
+            <h2>账号渠道配置</h2>
             <p className="muted">
-              启用的设备并行运行；每台只执行已勾选游戏，方舟完成退出后再运行阴阳师。修改后点击运行会先保存。
+              选择该账号的设备与身份。任务清单在每日任务中编辑。
             </p>
           </div>
           <div className="lane-toolbar">
+            <label>
+              新增渠道的游戏
+              <select
+                value={newGame}
+                disabled={active || !!busy || anyLaneActive}
+                onChange={(event) =>
+                  setNewGame(event.target.value as typeof newGame)
+                }
+              >
+                <option value="arknights">明日方舟</option>
+                <option value="onmyoji">阴阳师</option>
+              </select>
+            </label>
             <button
               className="button"
               disabled={
                 !!busy ||
                 active ||
                 anyLaneActive ||
-                deviceLanes.lanes.length >= 8
+                deviceLanes.lanes.length >= MAX_DEVICE_LANES
               }
               onClick={() => {
                 const instance =
@@ -91,27 +196,28 @@ export default function Devices({ desktop }: { desktop: DesktopController }) {
                   ) + 1;
                 setDeviceLanes({
                   ...deviceLanes,
+                  version: 2,
                   lanes: [
                     ...deviceLanes.lanes,
                     {
                       id: `lane-${Date.now().toString(36)}`,
-                      name: `MuMu ${instance}`,
+                      name: `${newGame === "arknights" ? "明日方舟" : "阴阳师"} · MuMu ${instance}`,
                       managerPath: deviceLanes.lanes[0]?.managerPath ?? "",
                       instance,
                       enabled: false,
                       arknights: {
-                        enabled: true,
+                        enabled: newGame === "arknights",
                         profileId:
                           arknightsProfiles.activeProfileId || "default",
                       },
-                      onmyoji: { enabled: false },
+                      onmyoji: { enabled: newGame === "onmyoji" },
                       closeEmulatorAfterSuccess: false,
                     },
                   ],
                 });
               }}
             >
-              <Plus size={14} /> 添加设备
+              <Plus size={14} /> 添加账号渠道
             </button>
             <button
               className="button"
@@ -145,88 +251,109 @@ export default function Devices({ desktop }: { desktop: DesktopController }) {
                   !api || !!busy || !deviceLanes.lanes.some((x) => x.enabled)
                 }
               >
-                <Play size={14} /> 运行全部
+                <Play size={14} /> 运行全部账号
               </button>
             )}
           </div>
         </div>
+        {desktop.lanesDirty && (
+          <p className="channels-unsaved" role="status">
+            <Save size={14} /> 有未保存的配置。复制前请先保存当前账号渠道配置。
+          </p>
+        )}
         <div className="lane-grid">
-          {deviceLanes.lanes.map((lane) => {
+          {deviceLanes.lanes.map((lane, index) => {
+            const gameId = channelGame(lane);
             const detected = mumuInstances.find(
               (item) => item.instance === lane.instance,
             );
             const running = laneActive(lane.id);
+            const status = laneStatuses[lane.id];
+            const profile = arknightsProfiles.profiles.find(
+              (item) => item.id === lane.arknights.profileId,
+            );
             return (
-              <article className="lane-card" key={lane.id}>
+              <article
+                className={`lane-card ${running ? "is-running" : ""}`}
+                key={lane.id}
+                data-lane-id={lane.id}
+                data-game-id={gameId}
+                data-device-instance={lane.instance}
+              >
                 <div className="lane-card-head">
-                  <div>
+                  <span className="lane-card-number" aria-hidden="true">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <div className="lane-card-title">
                     <strong>{lane.name}</strong>
+                    <span className="badge">
+                      {gameId === "arknights"
+                        ? "明日方舟"
+                        : gameId === "onmyoji"
+                          ? "阴阳师"
+                          : "请核对游戏配置"}
+                    </span>
                     <small>
-                      实例 {lane.instance}
-                      {detected?.address ? ` · ${detected.address}` : ""}
+                      <Monitor size={12} /> MuMu 实例 {lane.instance} ·{" "}
+                      {detected?.ready ? "设备已就绪" : "设备待检测"}
                     </small>
                   </div>
-                  <span className={`badge ${running ? "green" : ""}`}>
+                  <span
+                    className={`badge lane-run-badge ${running ? "green" : status === "failed" ? "red" : ""}`}
+                  >
                     {running
-                      ? laneStatuses[lane.id] === "stopping"
+                      ? status === "stopping"
                         ? "正在停止"
-                        : "运行中"
-                      : laneStatuses[lane.id] === "succeeded"
-                        ? "已完成"
-                        : laneStatuses[lane.id] === "failed"
-                          ? "失败"
-                          : detected?.ready
-                            ? "已就绪"
-                            : "待检测"}
+                        : status === "queued"
+                          ? "排队中"
+                          : "运行中"
+                      : status === "succeeded"
+                        ? "上次运行结束"
+                        : status === "failed"
+                          ? "上次运行失败"
+                          : status === "cancelled"
+                            ? "已停止"
+                            : lane.enabled
+                              ? "待运行"
+                              : "未启用"}
                   </span>
                 </div>
-                <label>
-                  MuMuManager.exe
-                  <input
-                    value={lane.managerPath}
-                    disabled={running || !!busy || active}
-                    onChange={(event) =>
-                      updateLane(lane.id, { managerPath: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  实例编号
-                  <input
-                    type="number"
-                    min="0"
-                    max="999"
-                    value={lane.instance}
-                    disabled={running || !!busy || active}
-                    onChange={(event) =>
-                      updateLane(lane.id, {
-                        instance: Number(event.target.value),
-                      })
-                    }
-                  />
-                </label>
-                <label>
-                  明日方舟账号档案
-                  <select
-                    value={lane.arknights.profileId}
-                    disabled={running || !!busy || active}
-                    onChange={(event) =>
-                      updateLane(lane.id, {
-                        arknights: {
-                          ...lane.arknights,
-                          profileId: event.target.value,
-                        },
-                      })
-                    }
-                  >
-                    {arknightsProfiles.profiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name} ·{" "}
-                        {profile.clientType === "Bilibili" ? "B服" : "官服"}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {gameId === "arknights" && (
+                  <label className="lane-profile-field">
+                    明日方舟账号档案
+                    <select
+                      value={lane.arknights.profileId}
+                      disabled={running || !!busy || active}
+                      onChange={(event) =>
+                        updateLane(lane.id, {
+                          arknights: {
+                            ...lane.arknights,
+                            profileId: event.target.value,
+                          },
+                        })
+                      }
+                    >
+                      {arknightsProfiles.profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name} ·{" "}
+                          {profile.clientType === "Bilibili" ? "B服" : "官服"}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="lane-binding-note">
+                      {profile?.expectedUid?.trim()
+                        ? "已配置 UID · 运行时核对身份"
+                        : "尚未配置 UID"}
+                    </span>
+                  </label>
+                )}
+                {lane.identityRequired && (
+                  <p className="muted">
+                    {gameId === "arknights"
+                      ? "请先填写此账号的 UID，再启用渠道。"
+                      : "请先绑定此账号的阴阳师角色，再启用渠道。"}
+                  </p>
+                )}
                 <div className="lane-games">
                   <label>
                     <input
@@ -237,44 +364,21 @@ export default function Devices({ desktop }: { desktop: DesktopController }) {
                         updateLane(lane.id, { enabled: event.target.checked })
                       }
                     />
-                    启用此设备
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={lane.arknights.enabled}
-                      disabled={running || !!busy || active}
-                      onChange={(event) =>
-                        updateLane(lane.id, {
-                          arknights: {
-                            ...lane.arknights,
-                            enabled: event.target.checked,
-                          },
-                        })
-                      }
-                    />
-                    明日方舟
-                    {detected?.arknights
-                      ? `（${detected.arknights === "Bilibili" ? "B服" : "官服"}）`
-                      : ""}
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={lane.onmyoji.enabled}
-                      disabled={running || !!busy || active}
-                      onChange={(event) =>
-                        updateLane(lane.id, {
-                          onmyoji: {
-                            ...lane.onmyoji,
-                            enabled: event.target.checked,
-                          },
-                        })
-                      }
-                    />
-                    阴阳师{detected?.onmyoji ? "（已安装）" : ""}
+                    启用此账号渠道
                   </label>
                 </div>
+                {gameId === "onmyoji" && (
+                  <OnmyojiIdentitySettings
+                    lane={lane}
+                    api={api}
+                    disabled={running || !!busy || active || anyLaneActive}
+                    onChange={(identity) =>
+                      updateLane(lane.id, {
+                        onmyoji: { ...lane.onmyoji, identity },
+                      })
+                    }
+                  />
+                )}
                 <div className="lane-card-actions">
                   {deviceLanes.lanes.length > 1 && !running && (
                     <button
@@ -299,23 +403,265 @@ export default function Devices({ desktop }: { desktop: DesktopController }) {
                       onClick={() => stopLane(lane.id)}
                       disabled={!api || laneStatuses[lane.id] === "stopping"}
                     >
-                      <Square size={14} /> 停止此设备
+                      <Square size={14} /> 停止此账号
                     </button>
                   ) : (
                     <button
                       className="button primary"
-                      onClick={() => startLane(lane.id)}
-                      disabled={!api || !!busy || active || !lane.enabled}
+                      aria-label={`运行账号 ${lane.name}`}
+                      onClick={() =>
+                        gameId && startGameSlot({ laneId: lane.id, gameId })
+                      }
+                      disabled={
+                        !api ||
+                        !!busy ||
+                        !gameId ||
+                        !lane.enabled ||
+                        (active && desktop.lanesDirty)
+                      }
                     >
-                      <Play size={14} /> 运行此设备
+                      <Play size={14} /> 运行此账号
                     </button>
                   )}
                 </div>
+                <details className="lane-connection-details">
+                  <summary>
+                    <Settings2 size={14} /> 设备连接配置{" "}
+                    <ChevronDown size={14} />
+                  </summary>
+                  <div className="lane-connection-fields">
+                    <label>
+                      MuMuManager.exe
+                      <input
+                        value={lane.managerPath}
+                        disabled={running || !!busy || active}
+                        onChange={(event) =>
+                          updateLane(lane.id, {
+                            managerPath: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      实例编号
+                      <input
+                        type="number"
+                        min="0"
+                        max="999"
+                        value={lane.instance}
+                        disabled={running || !!busy || active}
+                        onChange={(event) =>
+                          updateLane(lane.id, {
+                            instance: Number(event.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                    {detected?.address && (
+                      <p className="muted">
+                        设备地址 <code>{detected.address}</code>
+                      </p>
+                    )}
+                  </div>
+                </details>
               </article>
             );
           })}
         </div>
+        <div className="channels-copy-area">
+          <Layers3 size={16} />
+          <ChannelCopy
+            lanes={deviceLanes}
+            disabled={
+              !api?.copyChannels ||
+              !!busy ||
+              active ||
+              anyLaneActive ||
+              desktop.lanesDirty
+            }
+            onCopy={desktop.copyChannels}
+          />
+        </div>
       </section>
+      <details className="surface lane-section channel-discovery">
+        <summary>
+          <Monitor size={16} /> 发现与添加设备{" "}
+          <span>{mumuInstances.length} 个扫描结果</span>
+          <ChevronDown size={16} />
+        </summary>
+        <div className="section-label">
+          <div>
+            <h3>已发现的设备</h3>
+            <p className="muted">
+              扫描 MuMu
+              实例并添加为独立账号渠道。安装多个游戏的设备，请选择本渠道使用的游戏。
+            </p>
+          </div>
+          <div className="lane-toolbar">
+            <button
+              className="button"
+              disabled={!!busy}
+              onClick={() =>
+                scanMuMuInstances(deviceLanes.lanes[0]?.managerPath)
+              }
+            >
+              {busy === "mumu-instances" ? "扫描中…" : "重新扫描"}
+            </button>
+
+            <button
+              className="button"
+              disabled={!api || !!busy || active || anyLaneActive}
+              onClick={async () => {
+                if (!api) return;
+                const found = await api.detectMuMu();
+                const installation = found?.[0];
+                if (!installation) return;
+                setDeviceLanes((previous) => ({
+                  ...previous,
+                  lanes: previous.lanes.map((lane) => ({
+                    ...lane,
+                    managerPath: installation.managerPath,
+                  })),
+                }));
+                scanMuMuInstances(installation.managerPath);
+              }}
+            >
+              自动检测模拟器
+            </button>
+
+            <button
+              className="button"
+              disabled={!api || !!busy || active || anyLaneActive}
+              onClick={() => {
+                const additions = laneDraftsFromChannels(mumuInstances, {
+                  managerPath: deviceLanes.lanes[0]?.managerPath ?? "",
+                  profileId: arknightsProfiles.activeProfileId || "default",
+                  boundInstances: deviceLanes.lanes.map(
+                    (lane) => lane.instance,
+                  ),
+                  now: Date.now(),
+                });
+                if (additions.length === 0) return;
+                setDeviceLanes({
+                  ...deviceLanes,
+                  version: 2,
+                  lanes: [
+                    ...deviceLanes.lanes,
+                    ...additions.slice(
+                      0,
+                      MAX_DEVICE_LANES - deviceLanes.lanes.length,
+                    ),
+                  ],
+                });
+              }}
+            >
+              添加已识别游戏的设备
+            </button>
+          </div>
+        </div>
+        {mumuInstances.length === 0 ? (
+          <p className="muted">还没有扫描结果，点「重新扫描」。</p>
+        ) : (
+          <ul className="channel-list">
+            {mumuInstances.map((item) => {
+              const supported = [...new Set(item.supportedGames ?? [])];
+              const selectedGame =
+                supported.length === 1
+                  ? supported[0]
+                  : discoveryGames[item.instance];
+              const bound = deviceLanes.lanes.some(
+                (lane) => lane.instance === item.instance,
+              );
+              const games: string[] = [];
+              if (item.arknights)
+                games.push(
+                  `明日方舟（${item.arknights === "Bilibili" ? "B服" : "官服"}）`,
+                );
+              if (item.onmyoji) games.push("阴阳师");
+              return (
+                <li className="channel-row" key={item.instance}>
+                  <span className="channel-name">实例 {item.instance}</span>
+                  <code className="channel-address">{item.address}</code>
+                  <span className="channel-games">
+                    {games.length > 0
+                      ? games.join(" · ")
+                      : "（未装我们支持的游戏）"}
+                  </span>
+                  <span
+                    className={
+                      item.automationReady
+                        ? "channel-badge channel-badge-ok"
+                        : "channel-badge"
+                    }
+                  >
+                    {item.automationReady
+                      ? "✓ 可自动化"
+                      : item.running
+                        ? "暂不支持"
+                        : "实例未运行"}
+                  </span>
+                  {supported.length > 1 && !bound && (
+                    <select
+                      aria-label={`实例 ${item.instance} 的游戏`}
+                      value={selectedGame ?? ""}
+                      disabled={active || anyLaneActive || !!busy}
+                      onChange={(event) =>
+                        setDiscoveryGames((previous) => ({
+                          ...previous,
+                          [item.instance]: event.target.value as
+                            "arknights" | "onmyoji" | "",
+                        }))
+                      }
+                    >
+                      <option value="">选择一个游戏</option>
+                      {supported.map((id) => (
+                        <option key={id} value={id}>
+                          {id === "arknights" ? "明日方舟" : "阴阳师"}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    className="button"
+                    aria-label={`添加实例 ${item.instance} 的账号渠道`}
+                    disabled={
+                      !api ||
+                      bound ||
+                      !item.automationReady ||
+                      !selectedGame ||
+                      active ||
+                      anyLaneActive ||
+                      !!busy ||
+                      deviceLanes.lanes.length >= MAX_DEVICE_LANES
+                    }
+                    onClick={() => {
+                      if (!selectedGame) return;
+                      const draft = laneDraftFromChannel(item, {
+                        gameId: selectedGame,
+                        managerPath: deviceLanes.lanes[0]?.managerPath ?? "",
+                        profileId:
+                          arknightsProfiles.activeProfileId || "default",
+                        boundInstances: deviceLanes.lanes.map(
+                          (lane) => lane.instance,
+                        ),
+                        now: Date.now(),
+                      });
+                      if (draft)
+                        setDeviceLanes({
+                          ...deviceLanes,
+                          version: 2,
+                          lanes: [...deviceLanes.lanes, draft],
+                        });
+                    }}
+                  >
+                    {bound ? "已绑定" : "添加账号"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </details>
       <section className="inline-device surface">
         <DevicePreview desktop={desktop} />
       </section>

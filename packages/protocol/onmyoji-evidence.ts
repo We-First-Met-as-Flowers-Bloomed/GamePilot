@@ -6,6 +6,8 @@ export interface OnmyojiEffect {
     | "free-daily-gift"
     | "guild-submit"
     | "guild-reward"
+    | "oboroguruma-equip"
+    | "oboroguruma-start"
     | "hana-claim";
   observedAt: string;
   evidenceReference: string;
@@ -13,7 +15,13 @@ export interface OnmyojiEffect {
 }
 export interface OnmyojiExecutionEvidence {
   version: 1;
-  skillId: "check-in" | "mail" | "daily-gift" | "guild-quest" | "hana-claim";
+  skillId:
+    | "check-in"
+    | "mail"
+    | "daily-gift"
+    | "guild-quest"
+    | "oboroguruma"
+    | "hana-claim";
   /** submitted is written before input; a failed input can still have reached the game. */
   phase: "not-submitted" | "submitted" | "confirmed";
   observedAt: string;
@@ -27,6 +35,7 @@ const kinds: Record<
   mail: ["mail-claim"],
   "daily-gift": ["free-daily-gift"],
   "guild-quest": ["guild-submit", "guild-reward"],
+  oboroguruma: ["oboroguruma-equip", "oboroguruma-start"],
   "hana-claim": ["hana-claim"],
 };
 const object = (value: unknown): value is Record<string, unknown> =>

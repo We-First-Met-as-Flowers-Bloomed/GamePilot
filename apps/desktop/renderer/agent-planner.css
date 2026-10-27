@@ -175,7 +175,7 @@
   gap: 8px;
 }
 .agent-draft-lane > h3 .muted {
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 400;
 }
 .agent-draft-game {
@@ -245,7 +245,8 @@
   flex-wrap: wrap;
 }
 @media (max-width: 1150px) {
-  .agent-draft-lanes {
+  .agent-draft-lanes,
+  .daily-page .agent-draft .agent-draft-lanes {
     grid-template-columns: 1fr;
   }
 }
