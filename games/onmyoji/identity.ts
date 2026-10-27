@@ -1,5 +1,9 @@
 import type { GameDevice, Frame, TextHit } from "../../packages/runtime/device";
 import { setTimeout as delay } from "node:timers/promises";
+export {
+  parseOnmyojiSettingsUid,
+  verifyOnmyojiProfile,
+} from "./profile-identity";
 import type { Device } from "../../packages/protocol";
 import type {
   OnmyojiIdentityBinding,

@@ -37,7 +37,7 @@ export function projectAccountChannels(input: {
                 ? "UID 已配置 · 运行时核对"
                 : "UID 未绑定 · 身份未验证"
               : identity
-                ? "角色已配置 · 身份验证未认证"
+                ? "UID 已配置 · 运行时核对"
                 : "角色未绑定 · 身份未验证",
         };
         return {

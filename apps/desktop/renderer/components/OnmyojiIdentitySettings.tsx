@@ -22,7 +22,7 @@ export default function OnmyojiIdentitySettings({
   const scope = useRef(0);
   const draftMatches =
     roleId === lane.onmyoji.identity?.roleId &&
-    serverName === lane.onmyoji.identity?.serverName;
+    serverName === (lane.onmyoji.identity?.serverName ?? "");
   useEffect(() => {
     setRoleId(lane.onmyoji.identity?.roleId ?? "");
     setServerName(lane.onmyoji.identity?.serverName ?? "");
@@ -34,27 +34,33 @@ export default function OnmyojiIdentitySettings({
     };
   }, [
     lane.id,
+    lane.managerPath,
+    lane.instance,
+    lane.deviceInstances?.onmyoji,
+    lane.identityRequired,
+    lane.onmyoji.enabled,
     lane.onmyoji.identity?.roleId,
     lane.onmyoji.identity?.serverName,
   ]);
   return (
     <details className="lane-identity">
-      <summary>阴阳师角色核对 · 实验功能</summary>
+      <summary>阴阳师角色核对</summary>
       <p className="muted">
-        填写角色资料页的角色 ID
-        与服务器名。绑定后每日任务会暂停，直到角色锚点完成实机认证；自动恢复仍关闭。
+        自动打开庭院左上角头像，核对当前“编号”并返回庭院。
+        不使用“曾用编号”；区服仅作备注。UID 不符或无法确认时停止任务。
       </p>
       <label>
-        角色 ID
+        UID（当前编号）
         <input
           value={roleId}
           disabled={disabled || checking}
           onChange={(e) => setRoleId(e.target.value)}
           autoComplete="off"
+          inputMode="numeric"
         />
       </label>
       <label>
-        服务器名
+        区服备注（选填）
         <input
           value={serverName}
           disabled={disabled || checking}
@@ -68,8 +74,13 @@ export default function OnmyojiIdentitySettings({
           disabled={disabled || checking}
           onClick={() => {
             try {
-              onChange(validateOnmyojiIdentityBinding({ roleId, serverName }));
-              setMessage("请点击设备区域的保存，再打开角色资料页进行核对。");
+              onChange(
+                validateOnmyojiIdentityBinding({
+                  roleId,
+                  ...(serverName ? { serverName } : {}),
+                }),
+              );
+              setMessage("请点击设备区域的保存，再核对当前角色。");
             } catch (e) {
               setMessage(e instanceof Error ? e.message : String(e));
             }
@@ -112,11 +123,13 @@ export default function OnmyojiIdentitySettings({
               const result = await api.inspectOnmyojiIdentity(lane.id);
               if (scope.current !== epoch) return;
               setMessage(
-                result.status === "mismatch"
-                  ? "观察到的候选角色与绑定不同；锚点尚未实机认证。"
-                  : result.reason === "anchors-not-certified"
-                    ? "双帧候选一致；锚点尚未实机认证，身份仍未确认。"
-                    : "当前页面无法确认角色。请打开游戏角色资料页后重试。",
+                result.status === "matched" && result.certified
+                  ? "UID 双帧一致，已返回庭院。"
+                  : result.status === "mismatch"
+                    ? "当前 UID 与绑定账号不同，已停止后续任务。"
+                    : result.reason === "anchors-not-certified"
+                      ? "双帧候选一致；锚点尚未实机认证，身份仍未确认。"
+                      : "当前无法确认 UID 或返回庭院。请确认游戏已在庭院，再重试。",
               );
             } catch (e) {
               if (scope.current === epoch)

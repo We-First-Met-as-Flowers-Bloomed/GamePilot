@@ -1,24 +1,31 @@
 import { sha256 } from "./sha256";
 
+export const onmyojiIdentityPackages = [
+  "com.netease.onmyoji",
+  "com.netease.onmyoji.wyzymnqsd_cps",
+] as const;
+
 export interface OnmyojiIdentityBinding {
   roleId: string;
-  serverName: string;
+  /** Optional display note; the own-avatar settings page exposes UID, not server. */
+  serverName?: string;
 }
 export interface OnmyojiRuntimeConfig {
   identity?: OnmyojiIdentityBinding;
 }
 export interface OnmyojiIdentityEvidence {
   version: 1;
-  certification: "experimental";
-  status: "unconfigured" | "unknown" | "mismatch";
+  certification: "experimental" | "profile-uid-v1";
+  status: "unconfigured" | "unknown" | "mismatch" | "matched";
   reason: string;
   candidateMatch: boolean;
   expected?: OnmyojiIdentityBinding;
   device?: { adbPath: string; address: string };
-  packageName?: "com.netease.onmyoji";
+  packageName?: (typeof onmyojiIdentityPackages)[number];
   startedAt: string;
   observedAt: string;
   frames: { observedAt: string; identity?: OnmyojiIdentityBinding }[];
+  courtyardFrames?: string[];
 }
 import { recordWithKeys } from "./struct";
 
@@ -34,6 +41,9 @@ export const onmyojiIdentityReasons = [
   "identity-mismatch",
   "observation-timeout",
   "observation-failed",
+  "identity-matched",
+  "courtyard-anchor-missing",
+  "profile-return-failed",
 ] as const;
 const text = (value: unknown, maximum: number): value is string =>
   typeof value === "string" &&
@@ -44,10 +54,17 @@ export function validateOnmyojiIdentityBinding(
   value: unknown,
 ): OnmyojiIdentityBinding {
   const input = recordWithKeys(value, ["roleId", "serverName"]);
-  if (!input || !text(input.roleId, 128) || !text(input.serverName, 80))
+  if (
+    !input ||
+    !text(input.roleId, 128) ||
+    (input.serverName !== undefined && !text(input.serverName, 80))
+  )
     throw Error("阴阳师身份绑定无效");
   // Opaque strings: no numeric conversion, guessed digit length or nickname fallback.
-  return { roleId: input.roleId, serverName: input.serverName };
+  return {
+    roleId: input.roleId,
+    ...(input.serverName === undefined ? {} : { serverName: input.serverName }),
+  };
 }
 export function validateOnmyojiConfig(value: unknown): OnmyojiRuntimeConfig {
   const input = recordWithKeys(value, ["identity"]);
@@ -95,12 +112,15 @@ export function validOnmyojiIdentityEvidence(
     "startedAt",
     "observedAt",
     "frames",
+    "courtyardFrames",
   ]);
   if (
     !input ||
     input.version !== 1 ||
-    input.certification !== "experimental" ||
-    !["unconfigured", "unknown", "mismatch"].includes(String(input.status)) ||
+    !["experimental", "profile-uid-v1"].includes(String(input.certification)) ||
+    !["unconfigured", "unknown", "mismatch", "matched"].includes(
+      String(input.status),
+    ) ||
     !onmyojiIdentityReasons.includes(
       input.reason as (typeof onmyojiIdentityReasons)[number],
     ) ||
@@ -122,7 +142,9 @@ export function validOnmyojiIdentityEvidence(
     }
     if (
       input.packageName !== undefined &&
-      input.packageName !== "com.netease.onmyoji"
+      !onmyojiIdentityPackages.includes(
+        input.packageName as (typeof onmyojiIdentityPackages)[number],
+      )
     )
       return false;
     let prior = Date.parse(input.startedAt);
@@ -141,10 +163,82 @@ export function validOnmyojiIdentityEvidence(
     }
     if (
       input.frames.length &&
-      (!input.device || input.packageName !== "com.netease.onmyoji")
+      (!input.device ||
+        !onmyojiIdentityPackages.includes(
+          input.packageName as (typeof onmyojiIdentityPackages)[number],
+        ))
     )
       return false;
     const evidence = input as unknown as OnmyojiIdentityEvidence;
+    if (evidence.certification === "profile-uid-v1") {
+      if (
+        !evidence.expected ||
+        !Array.isArray(evidence.courtyardFrames) ||
+        evidence.courtyardFrames.length > 2
+      )
+        return false;
+      let previous = evidence.frames.at(-1)?.observedAt ?? evidence.startedAt;
+      for (const at of evidence.courtyardFrames) {
+        if (
+          !date(at) ||
+          Date.parse(at) <= Date.parse(previous) ||
+          Date.parse(at) > Date.parse(evidence.observedAt)
+        )
+          return false;
+        previous = at;
+      }
+      if (evidence.status === "mismatch")
+        return (
+          !evidence.candidateMatch &&
+          evidence.reason === "identity-mismatch" &&
+          evidence.frames.some(
+            (frame) =>
+              frame.identity &&
+              frame.identity.roleId !== evidence.expected!.roleId,
+          )
+        );
+      if (evidence.status === "unknown")
+        return (
+          !evidence.candidateMatch &&
+          ![
+            "identity-matched",
+            "identity-mismatch",
+            "unconfigured",
+            "anchors-not-certified",
+          ].includes(evidence.reason)
+        );
+      const gap = (values: string[]) =>
+        values.length === 2 &&
+        Date.parse(values[1]) - Date.parse(values[0]) >= 600 &&
+        Date.parse(values[1]) - Date.parse(values[0]) <= 10_000;
+      return (
+        evidence.status === "matched" &&
+        evidence.reason === "identity-matched" &&
+        evidence.candidateMatch &&
+        evidence.device !== undefined &&
+        evidence.packageName !== undefined &&
+        /^\d+$/.test(evidence.expected.roleId) &&
+        Date.parse(evidence.observedAt) - Date.parse(evidence.startedAt) <=
+          45_000 &&
+        gap(evidence.frames.map((frame) => frame.observedAt)) &&
+        gap(evidence.courtyardFrames) &&
+        evidence.frames.every(
+          (frame) => frame.identity?.roleId === evidence.expected!.roleId,
+        )
+      );
+    }
+    if (
+      (evidence.packageName !== undefined &&
+        evidence.packageName !== "com.netease.onmyoji") ||
+      evidence.status === "matched" ||
+      evidence.courtyardFrames !== undefined ||
+      [
+        "identity-matched",
+        "courtyard-anchor-missing",
+        "profile-return-failed",
+      ].includes(evidence.reason)
+    )
+      return false;
     if (evidence.status === "unconfigured")
       return (
         evidence.reason === "unconfigured" &&
@@ -201,11 +295,14 @@ export function publicOnmyojiIdentityInspection(
     throw Error("阴阳师身份核对记录无效");
   return {
     status:
-      value.status === "mismatch"
-        ? ("mismatch" as const)
-        : ("unknown" as const),
+      value.status === "matched"
+        ? ("matched" as const)
+        : value.status === "mismatch"
+          ? ("mismatch" as const)
+          : ("unknown" as const),
     configured: value.expected !== undefined,
-    certified: false as const,
+    certified:
+      value.status === "matched" && value.certification === "profile-uid-v1",
     reason: value.reason,
     observedAt: value.observedAt,
   };

@@ -5,8 +5,9 @@ import type { OnmyojiRuntimeConfig } from "../../packages/protocol/onmyoji-ident
 import {
   validateOnmyojiConfig,
   unconfiguredOnmyojiIdentityEvidence,
+  validOnmyojiIdentityEvidence,
 } from "../../packages/protocol/onmyoji-identity";
-import { inspectOnmyojiIdentity, type OnmyojiIdentityPorts } from "./identity";
+import { verifyOnmyojiProfile, type OnmyojiIdentityPorts } from "./identity";
 
 export interface OnmyojiExecutionIdentityContext {
   config: OnmyojiRuntimeConfig;
@@ -48,8 +49,20 @@ export async function executeOnmyojiSkill(
     : undefined;
   if (!handler) throw Error("阴阳师技能未注册：" + id);
   const config = validateOnmyojiConfig(identityContext?.config ?? {});
-  const evidence = config.identity
-    ? await inspectOnmyojiIdentity({
+  let evidence = unconfiguredOnmyojiIdentityEvidence(identityContext?.now?.());
+  const daily = new OnmyojiDaily(
+    device,
+    (message, result) =>
+      log(
+        message,
+        result ? { ...result, onmyojiIdentity: evidence } : undefined,
+      ),
+    identityContext?.wait,
+    identityContext?.now ? () => new Date(identityContext.now!()) : undefined,
+  );
+  if (config.identity) {
+    const verify = () =>
+      verifyOnmyojiProfile({
         identity: config.identity,
         device,
         connectedDevice: identityContext!.connectedDevice,
@@ -61,30 +74,46 @@ export async function executeOnmyojiSkill(
         now: identityContext?.now,
         wait: identityContext?.wait,
         signal,
-      })
-    : unconfiguredOnmyojiIdentityEvidence(identityContext?.now?.());
+      });
+    // Inspect first, so an observed foreign profile can never be discarded by login/navigation.
+    evidence = await verify();
+    if (
+      evidence.status === "unknown" &&
+      (evidence.reason === "courtyard-anchor-missing" ||
+        (id === "login" && evidence.reason === "package-not-running"))
+    ) {
+      log("尚未处于可核验的庭院；先准备登录或返回庭院，尚未允许业务执行", {
+        onmyojiIdentity: evidence,
+      });
+      if (id === "login") await daily.login(signal);
+      await daily.prepareIdentityCourtyard(signal);
+      evidence = await verify();
+    }
+  }
   log(
     config.identity
-      ? "阴阳师角色身份实验性被动核对记录已保存"
+      ? "阴阳师头像页 UID 核验及返回庭院记录已保存"
       : "未配置阴阳师角色绑定，沿用旧流程；没有独立身份核验证明",
     { onmyojiIdentity: evidence },
   );
-  // There is no certified production role-profile fixture. Candidate agreement
-  // cannot authorize login, rewards, navigation or recovery.
-  if (config.identity)
+  if (
+    config.identity &&
+    (evidence.status !== "matched" || !validOnmyojiIdentityEvidence(evidence))
+  )
     throw Error(
       evidence.status === "mismatch"
-        ? "阴阳师角色身份候选与冻结绑定冲突，已停止执行"
-        : "阴阳师角色资料页锚点尚未实机认证，已阻止绑定账号业务执行",
+        ? "阴阳师 UID 与绑定账号不符，已停止执行"
+        : `阴阳师 UID 核验未通过（${evidence.reason}），已停止后续任务`,
     );
-  const result = await handler(
-    new OnmyojiDaily(device, (message, result) =>
-      log(
-        message,
-        result ? { ...result, onmyojiIdentity: evidence } : undefined,
-      ),
-    ),
-    signal,
-  );
+  if (config.identity && id === "login")
+    return {
+      status: "succeeded" as const,
+      goalSatisfied: true,
+      summary: "已核对头像设置页完整 UID，双帧一致且已返回庭院",
+      evidenceTimestamp: evidence.observedAt,
+      evidenceReference: "onmyoji:identity:profile-uid-v1",
+      onmyojiIdentity: evidence,
+    };
+  const result = await handler(daily, signal);
   return { ...(result ?? {}), onmyojiIdentity: evidence };
 }

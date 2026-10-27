@@ -3,11 +3,17 @@ import type { GameDevice } from "../packages/runtime/device";
 import type { Plan, SkillResult } from "../packages/protocol";
 import { createOnmyojiWorkerAdapter } from "../games/onmyoji/worker-adapter";
 import { validOnmyojiIdentityEvidence } from "../packages/protocol/onmyoji-identity";
-const mocks = vi.hoisted(() => ({ login: vi.fn(), mail: vi.fn() }));
+import profile from "./fixtures/onmyoji/own-settings-a-20261027.json";
+const mocks = vi.hoisted(() => ({
+  login: vi.fn(),
+  mail: vi.fn(),
+  prepare: vi.fn(),
+}));
 vi.mock("../games/onmyoji/daily", () => ({
   OnmyojiDaily: class {
     login = mocks.login;
     mail = mocks.mail;
+    prepareIdentityCourtyard = mocks.prepare;
   },
 }));
 afterEach(() => vi.clearAllMocks());
@@ -21,7 +27,7 @@ const bound = {
   adbPath: "D:/fixture/adb.exe",
   address: "fixture:1",
 };
-const binding = { roleId: "local-role", serverName: "local-server" };
+const binding = { roleId: "106123456", serverName: "local-server" };
 function engine() {
   return {
     observe: vi.fn(async () => ({ width: 1920, height: 1080, texts: [] })),
@@ -56,7 +62,7 @@ describe("Onmyoji worker identity admission", () => {
   });
 
   it.each(["login", "mail"])(
-    "blocks bound %s before any business action and retains the passive evidence",
+    "blocks bound %s without UID proof and retains the actual evidence",
     async (skillId) => {
       const device = engine();
       let clock = Date.parse("2026-10-11T12:00:00Z");
@@ -73,8 +79,8 @@ describe("Onmyoji worker identity admission", () => {
       adapter.validate(plan);
       await expect(
         adapter.run(skillId, new AbortController().signal, log, plan),
-      ).rejects.toThrow("尚未实机认证");
-      expect(mocks.login).not.toHaveBeenCalled();
+      ).rejects.toThrow("UID 核验未通过");
+      expect(mocks.login).toHaveBeenCalledTimes(skillId === "login" ? 1 : 0);
       expect(mocks.mail).not.toHaveBeenCalled();
       expect(device.click).not.toHaveBeenCalled();
       expect(device.startApp).not.toHaveBeenCalled();
@@ -113,4 +119,60 @@ describe("Onmyoji worker identity admission", () => {
       onmyojiIdentity: expect.objectContaining({ expected: binding }),
     });
   });
+
+  it.each(["login", "mail"])(
+    "allows bound %s only after the real profile UID and courtyard return",
+    async (skillId) => {
+      const device = engine();
+      const home = {
+        width: 1920,
+        height: 1080,
+        texts: [
+          { text: "测试角色", box: [194, 45, 126, 36], score: 0.99 },
+          { text: "加成", box: [550, 55, 32, 56], score: 0.99 },
+          { text: "召唤", box: [1578, 262, 60, 107], score: 0.99 },
+        ],
+      };
+      const frames = [home, home, profile, profile, home, home];
+      let index = 0,
+        clock = Date.parse("2026-10-27T11:00:00Z");
+      vi.mocked(device.observe).mockImplementation(
+        async () =>
+          structuredClone(
+            frames[Math.min(index++, frames.length - 1)],
+          ) as never,
+      );
+      mocks.login.mockResolvedValue({
+        status: "succeeded",
+        summary: "legacy login",
+      });
+      mocks.mail.mockResolvedValue({
+        status: "succeeded",
+        summary: "mail checked",
+      });
+      const adapter = createOnmyojiWorkerAdapter(async () => device, {
+        config: () => ({ identity: binding }),
+        connectedDevice: () => bound,
+        appProcessRunning: async () => true,
+        now: () => clock,
+        wait: async (ms) => {
+          clock += ms;
+        },
+      });
+      adapter.validate(plan);
+      const result = (await adapter.run(
+        skillId,
+        new AbortController().signal,
+        vi.fn(),
+        plan,
+      )) as SkillResult;
+      expect(result.onmyojiIdentity).toMatchObject({
+        status: "matched",
+        certification: "profile-uid-v1",
+      });
+      expect(validOnmyojiIdentityEvidence(result.onmyojiIdentity)).toBe(true);
+      expect(mocks.mail).toHaveBeenCalledTimes(skillId === "mail" ? 1 : 0);
+      if (skillId === "login") expect(result.summary).toContain("UID");
+    },
+  );
 });

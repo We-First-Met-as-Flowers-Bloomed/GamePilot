@@ -42,6 +42,7 @@ fixture.lanes!.lanes.forEach((lane, index) => {
 fixture.lanes = migrateAccountChannels(fixture.lanes!);
 let arkPlans = defaultArknightsAutomation(fixture.lanes.lanes);
 let yysPlans = defaultOnmyojiAutomation(fixture.lanes.lanes);
+let onmyojiIdentityMatches = false;
 const calls: { method: string; args: unknown[] }[] = [];
 let planner: PlannerViewState = { revision: 0, status: "idle" };
 let execution: AgentExecutionView = {
@@ -1222,8 +1223,10 @@ const methods: Record<string, (...args: any[]) => unknown> = {
   },
   inspectOnmyojiIdentity: () => ({
     version: 1,
-    status: "mismatch",
-    reason: "candidate-mismatch",
+    status: onmyojiIdentityMatches ? "matched" : "mismatch",
+    certified: onmyojiIdentityMatches,
+    configured: true,
+    reason: onmyojiIdentityMatches ? "identity-matched" : "identity-mismatch",
   }),
   searchCopilot: () => [
     {
@@ -2949,8 +2952,8 @@ void app
     );
     await clickText("核对当前角色页面");
     await until(
-      'document.querySelector(".lane-identity").textContent.includes("候选角色与绑定不同")',
-      "uncertified mismatch wording",
+      'document.querySelector(".lane-identity").textContent.includes("当前 UID 与绑定账号不同")',
+      "UID mismatch wording",
     );
     check(
       "identity mismatch neither certifies anchors nor claims two matching frames",
@@ -2964,6 +2967,24 @@ void app
       (await captureFrame("identity-settings")).toPNG(),
     );
     await auditAccessibility("identity-settings");
+    onmyojiIdentityMatches = true;
+    await clickText("核对当前角色页面");
+    await until(
+      'document.querySelector(".lane-identity").textContent.includes("UID 双帧一致，已返回庭院")',
+      "certified UID and courtyard return wording",
+    );
+    check(
+      "identity matched result is shown only after inspection",
+      calls.filter((c) => c.method === "inspectOnmyojiIdentity").length === 2,
+    );
+    await auditAccessibility("identity-settings-matched");
+    await js(
+      `{const field=[...document.querySelector('.lane-identity').closest('article').querySelectorAll('label')].find(el=>el.textContent.includes('实例编号')).querySelector('input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,'5');field.dispatchEvent(new Event('input',{bubbles:true}));}`,
+    );
+    await until(
+      '!document.querySelector(".lane-identity").textContent.includes("UID 双帧一致")',
+      "changing the physical target clears old identity success",
+    );
     // The real chat card can prepare/read but execution needs this fresh turn and explicit consent.
     await openAiWorkbench();
     await until(

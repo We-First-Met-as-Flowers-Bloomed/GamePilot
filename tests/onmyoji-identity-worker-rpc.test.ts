@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import ownProfile from "./fixtures/onmyoji/own-settings-a-20261027.json";
 
 const mocks = vi.hoisted(() => ({
   observe: vi.fn(),
@@ -65,8 +66,9 @@ it("exposes a read-only experimental identity RPC on the connected worker, with 
   await import("../packages/runtime/worker");
   const send = async (id: string, method: string, payload?: unknown) => {
     receive({ data: { id, method, payload } });
-    await vi.waitFor(() =>
-      expect(responses.some((response) => response.id === id)).toBe(true),
+    await vi.waitFor(
+      () => expect(responses.some((response) => response.id === id)).toBe(true),
+      { timeout: 6000 },
     );
     return responses.find((response) => response.id === id)!;
   };
@@ -130,4 +132,44 @@ it("exposes a read-only experimental identity RPC on the connected worker, with 
     },
   });
   expect(mocks.observe).toHaveBeenCalledTimes(2);
-});
+  mocks.appProcessRunning.mockResolvedValue(true);
+  const profileRead = await send(
+    "profile-inspect",
+    "inspect-onmyoji-identity",
+    {
+      config: { identity: { roleId: "106123456" } },
+      mode: "profile",
+    },
+  );
+  expect(profileRead).toMatchObject({
+    result: {
+      inspection: { status: "unknown", certified: false },
+      localEvidence: { certification: "profile-uid-v1" },
+    },
+  });
+  expect(mocks.click).not.toHaveBeenCalled();
+  const home = {
+    width: 1920,
+    height: 1080,
+    texts: [
+      { text: "测试角色", box: [194, 45, 126, 36], score: 0.99 },
+      { text: "加成", box: [550, 55, 32, 56], score: 0.99 },
+      { text: "召唤", box: [1578, 262, 60, 107], score: 0.99 },
+    ],
+  };
+  for (const frame of [home, home, ownProfile, ownProfile, home, home])
+    mocks.observe.mockResolvedValueOnce(frame);
+  const verified = await send("profile-matched", "inspect-onmyoji-identity", {
+    config: { identity: { roleId: "106123456" } },
+    mode: "profile",
+  });
+  expect(verified).toMatchObject({
+    result: {
+      inspection: { status: "matched", certified: true, configured: true },
+    },
+  });
+  expect(
+    JSON.stringify((verified.result as { inspection: unknown }).inspection),
+  ).not.toContain("106123456");
+  expect(mocks.click).toHaveBeenCalledTimes(2);
+}, 15000);

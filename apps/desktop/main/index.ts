@@ -1165,8 +1165,11 @@ if (ownsInstance)
                   inspection: import("../../../packages/protocol/onmyoji-identity").OnmyojiIdentityInspection;
                 }>(
                   "inspect-onmyoji-identity",
-                  { config: { identity: lane.onmyoji.identity } },
-                  10000,
+                  {
+                    config: { identity: lane.onmyoji.identity },
+                    mode: "profile",
+                  },
+                  45000,
                 );
                 return result.inspection;
               } finally {

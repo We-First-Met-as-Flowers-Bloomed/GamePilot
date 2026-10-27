@@ -15,7 +15,10 @@ import {
   type PreparedCopilotPlan,
 } from "../protocol/copilot";
 import { createOnmyojiWorkerAdapter } from "../../games/onmyoji/worker-adapter";
-import { inspectOnmyojiIdentity } from "../../games/onmyoji/identity";
+import {
+  inspectOnmyojiIdentity,
+  verifyOnmyojiProfile,
+} from "../../games/onmyoji/identity";
 import {
   validateOnmyojiConfig,
   publicOnmyojiIdentityInspection,
@@ -47,15 +50,12 @@ function coreClient(config = arknightsConfig) {
     join(__dirname, "../maa-bridge/GamePilot.MaaBridge.exe"),
     join(__dirname, `../resources/maa-${engineContract.version}`),
     join(process.env.GAMEPILOT_DATA!, "maacore-logs"),
-    {clientType: config.clientType},
+    { clientType: config.clientType },
   );
 }
 import { validateDevice, validatePlan, type RunEvent } from "../protocol";
 import { Runner } from "./runner";
-import {
-  inspectDevice,
-  inspectDeviceForPackage,
-} from "./device-inspection";
+import { inspectDevice, inspectDeviceForPackage } from "./device-inspection";
 import { pressAndroidBack } from "./android-capture";
 import { inspectArknightsDevice } from "../../games/arknights/inspect-device";
 import { captureFailureImage } from "./failure-capture";
@@ -91,7 +91,8 @@ async function readArknightsScene(
        * 于是 `foregroundPackage` 永远不是方舟、登录核验永远失败（当天两个账号都被这条挡住）。
        * 改为按包名逐个显示挑选；一个都不匹配就报错（不拿桌面的帧冒充游戏画面）。
        */
-      capture: (target) => inspectDeviceForPackage(target, arknightsPackage(config)),
+      capture: (target) =>
+        inspectDeviceForPackage(target, arknightsPackage(config)),
       wait: () => delay(500),
       recognize: async (image, roi, onlyRec) => {
         if (!ocr) {
@@ -292,19 +293,32 @@ async function dispatch(request: Request): Promise<unknown> {
       });
     case "inspect-onmyoji-identity":
       return deviceOperation(async () => {
-        const payload = recordWithKeys(request.payload ?? {}, ["config"]);
-        if (!payload) throw Error("阴阳师身份只读核对参数无效");
+        const payload = recordWithKeys(request.payload ?? {}, [
+          "config",
+          "mode",
+        ]);
+        if (
+          !payload ||
+          (payload.mode !== undefined && payload.mode !== "profile")
+        )
+          throw Error("阴阳师身份核对参数无效");
         const config = validateOnmyojiConfig(
           Object.hasOwn(payload, "config") ? payload.config : onmyojiConfig,
         );
         const controller = new AbortController();
         navigationController = controller;
         try {
-          const localEvidence = await inspectOnmyojiIdentity({
+          const inspect =
+            payload.mode === "profile"
+              ? verifyOnmyojiProfile
+              : inspectOnmyojiIdentity;
+          const localEvidence = await inspect({
             identity: config.identity,
             device: {
               observe: async (signal) => (await engine()).observe(signal),
               packages: async (signal) => (await engine()).packages(signal),
+              click: async (x, y, signal) =>
+                (await engine()).click(x, y, signal),
             },
             connectedDevice: () => connectedDevice,
             appProcessRunning,
@@ -395,7 +409,8 @@ async function dispatch(request: Request): Promise<unknown> {
             ))
           ) {
             const observedAt = new Date().toISOString();
-            const gap = Date.parse(observedAt) - Date.parse(firstObservedAt ?? "");
+            const gap =
+              Date.parse(observedAt) - Date.parse(firstObservedAt ?? "");
             // Slow concurrent ADB checks can exceed the unchanged evidence window.
             // Start a fresh pair instead of returning proof the host must reject.
             if (firstObservedAt && gap >= 250 && gap <= 5000)
@@ -414,7 +429,9 @@ async function dispatch(request: Request): Promise<unknown> {
           } else firstObservedAt = undefined;
           await delay(500);
         }
-        throw new Error("未能在有效时间窗口内双次确认明日方舟退出，未启动同实例后续游戏");
+        throw new Error(
+          "未能在有效时间窗口内双次确认明日方舟退出，未启动同实例后续游戏",
+        );
       });
     case "ping":
       return { protocol: 1 };

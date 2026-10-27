@@ -549,6 +549,10 @@ export class OnmyojiDaily {
     }
     throw new Error("启动等待超时；请处理游戏更新、公告或登录弹窗后再试");
   }
+  /** Navigation only; no identity claim or reward input is produced here. */
+  async prepareIdentityCourtyard(signal: AbortSignal): Promise<void> {
+    await this.courtyard(signal);
+  }
   private async courtyard(signal: AbortSignal): Promise<Frame> {
     for (let attempt = 0; attempt < 15; attempt++) {
       const frame = await this.shot(signal);
@@ -1082,11 +1086,7 @@ export class OnmyojiDaily {
       await this.text(label, signal);
       // 2026-10-14 更新后阴阳寮入口直接落在「寮境」：它是左侧活动行 + 底栏
       // 神社/祈愿/结界/寮信息 的布局，没有旧版 阴阳寮 标题锚点。
-      return this.waitFor(
-        (f) => isGuild(f) || isGuildRealm(f),
-        signal,
-        8,
-      );
+      return this.waitFor((f) => isGuild(f) || isGuildRealm(f), signal, 8);
     }
     let entry = await this.device.matchTemplate(
       "guild-entry.png",
@@ -1170,7 +1170,7 @@ export class OnmyojiDaily {
     // 那是大人的取舍：这里不自动做，只在摘要里如实说明它还在。
     let claimed = 0;
     let lastBox: [number, number, number, number] | undefined;
-    for (; claimed < 3; ) {
+    for (; claimed < 3;) {
       const claim = collectiveClaimAction(tasks);
       if (!claim) break;
       // 只有"同一张卡领完还显示可领"才算异常：不同卡各自可领是正常的，不能因此停下。
@@ -2271,7 +2271,9 @@ export class OnmyojiDaily {
    * 日常里某一步抛错会中断整条 lane、剩下的步骤不再执行，所以"今天没开放"必须是可跳过的，
    * 而不是失败——但摘要里要说清是"没看到入口"，不假装已完成。
    */
-  private async oborogurumaEntry(signal: AbortSignal): Promise<Frame | undefined> {
+  private async oborogurumaEntry(
+    signal: AbortSignal,
+  ): Promise<Frame | undefined> {
     for (let attempt = 0; attempt < 18; attempt++) {
       const f = await this.shot(signal);
       if (
@@ -2362,9 +2364,7 @@ export class OnmyojiDaily {
         .map((h) => `${h.text}@${Math.round(h.box[0])},${Math.round(h.box[1])}`)
         .join(" / ");
       const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        digest ? `${detail}；画面文字：${digest}` : detail,
-      );
+      throw new Error(digest ? `${detail}；画面文字：${digest}` : detail);
     }
   }
 
@@ -2565,11 +2565,15 @@ export class OnmyojiDaily {
       if (offer) {
         const decline = findText(after, /^取消$/, [600, 560, 420, 170]);
         if (!decline)
-          throw new Error("出发后出现加成询问，但未找到「取消」，停止；不代玩家买加成");
+          throw new Error(
+            "出发后出现加成询问，但未找到「取消」，停止；不代玩家买加成",
+          );
         if (!declinedBuff) {
           await this.text(decline, signal);
           declinedBuff = true;
-          this.log("已拒绝「打开御魂掉落加成」询问（不代玩家买加成），挂机照常开始");
+          this.log(
+            "已拒绝「打开御魂掉落加成」询问（不代玩家买加成），挂机照常开始",
+          );
         }
         await this.pause(1200, signal);
         continue;
